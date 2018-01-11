@@ -6,6 +6,7 @@ import List.Extra as List
 import Svg exposing (svg, rect, Svg, g, text_, text)
 import Svg.Attributes exposing (width, height, rx, ry, viewBox, x, y, fill, fontSize)
 import Arithmetic exposing (isEven)
+import Piece
 
 
 ---- MODEL ----
@@ -108,7 +109,69 @@ squareView rankIndex fileIndex square =
         ]
         [ squareFillView rankIndex fileIndex square
         , coordinateAnnotationView rankIndex fileIndex
+        , squarePieceView square
         ]
+
+
+squarePieceView square =
+    case square of
+        Empty ->
+            g [] []
+
+        Occupied player piece ->
+            pieceView piece player [] (toFloat <| squareSize // 2) (toFloat <| squareSize // 2)
+
+
+pieceView : Piece -> Player -> (List (Svg.Attribute msg) -> Float -> Float -> Svg msg)
+pieceView piece player attrs left top =
+    case piece of
+        Pawn ->
+            case player of
+                Black ->
+                    Piece.blackPawn attrs left top
+
+                White ->
+                    Piece.whitePawn attrs left top
+
+        Bishop ->
+            case player of
+                Black ->
+                    Piece.blackBishop attrs left top
+
+                White ->
+                    Piece.whiteBishop attrs left top
+
+        Knight ->
+            case player of
+                Black ->
+                    Piece.blackKnight attrs left top
+
+                White ->
+                    Piece.whiteKnight attrs left top
+
+        King ->
+            case player of
+                Black ->
+                    Piece.blackKing attrs left top
+
+                White ->
+                    Piece.whiteKing attrs left top
+
+        Queen ->
+            case player of
+                Black ->
+                    Piece.blackQueen attrs left top
+
+                White ->
+                    Piece.whiteQueen attrs left top
+
+        Rook ->
+            case player of
+                Black ->
+                    Piece.blackRook attrs left top
+
+                White ->
+                    Piece.whiteRook attrs left top
 
 
 squareFillView : Int -> Int -> Square -> Svg Msg
