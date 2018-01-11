@@ -4,7 +4,8 @@ import Html exposing (Html, text, div, h1, img)
 import Html.Attributes exposing (src)
 import List.Extra as List
 import Svg exposing (svg, rect, Svg, g)
-import Svg.Attributes exposing (width, height, rx, ry, viewBox, x, y)
+import Svg.Attributes exposing (width, height, rx, ry, viewBox, x, y, fill)
+import Arithmetic exposing (isEven)
 
 
 ---- MODEL ----
@@ -104,8 +105,17 @@ squareView rankIndex fileIndex square =
         , y (toString <| fileIndex * squareSize)
         , width (toString squareSize)
         , height (toString squareSize)
+        , fill <| squareColor rankIndex fileIndex
         ]
         []
+
+
+squareColor : Int -> Int -> String
+squareColor rankIndex fileIndex =
+    if isEven (rankIndex + fileIndex) then
+        "#f2efc7"
+    else
+        "#d2bba0"
 
 
 boardSize =
