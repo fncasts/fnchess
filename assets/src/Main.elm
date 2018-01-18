@@ -5,8 +5,12 @@ import Html.Attributes exposing (src)
 import List.Extra as List
 import Svg exposing (svg, rect, Svg, g, text_, text)
 import Svg.Attributes exposing (width, height, rx, ry, viewBox, x, y, fill, fontSize)
+import Svg.Events exposing (onMouseDown, onMouseUp, onMouseMove)
 import Arithmetic exposing (isEven)
 import Piece
+import Mouse
+import Json.Decode as JD
+import Json.Decode.Pipeline as JDP
 
 
 ---- MODEL ----
@@ -14,6 +18,8 @@ import Piece
 
 type alias Model =
     { board : Board
+    , drag : Maybe Drag
+    , mousePosition : Mouse.Position
     }
 
 
@@ -36,6 +42,10 @@ type Square
     | Occupied Player Piece
 
 
+type Location
+    = Location Int Int
+
+
 type alias Board =
     List Rank
 
@@ -44,9 +54,26 @@ type alias Rank =
     List Square
 
 
+type Drag
+    = Drag Player Piece
+
+
+type alias MouseMove =
+    { clientX : Int
+    , clientY : Int
+    , targetOffsetX : Int
+    , targetOffsetY : Int
+    }
+
+
 init : ( Model, Cmd Msg )
 init =
-    ( { board = newGame }, Cmd.none )
+    ( { board = newGame
+      , drag = Nothing
+      , mousePosition = { x = 0, y = 0 }
+      }
+    , Cmd.none
+    )
 
 
 newGame : Board
@@ -70,11 +97,63 @@ newGame =
 
 type Msg
     = NoOp
+    | DragStart Player Piece Location
+    | DragEnd Location
+    | MouseMoved MouseMove
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
-    ( model, Cmd.none )
+    case Debug.log "Update" msg of
+        NoOp ->
+            ( model, Cmd.none )
+
+        DragStart player piece location ->
+            let
+                updatedBoard =
+                    emptySquare location model.board
+            in
+                ( { model
+                    | board = updatedBoard
+                    , drag = Just (Drag player piece)
+                  }
+                , Cmd.none
+                )
+
+        DragEnd location ->
+            let
+                updatedBoard =
+                    placePiece location model.drag model.board
+            in
+                ( { model
+                    | board = updatedBoard
+                    , drag = Nothing
+                  }
+                , Cmd.none
+                )
+
+        MouseMoved { clientX, clientY, targetOffsetX, targetOffsetY } ->
+            ( { model | mousePosition = { x = clientX - targetOffsetX, y = clientY - targetOffsetY } }, Cmd.none )
+
+
+emptySquare : Location -> Board -> Board
+emptySquare (Location rankIndex fileIndex) board =
+    List.updateAt rankIndex (\rank -> emptySquareInRank rank fileIndex) board
+
+
+emptySquareInRank : Rank -> Int -> Rank
+emptySquareInRank rank fileIndex =
+    List.updateAt fileIndex (\_ -> Empty) rank
+
+
+placePiece : Location -> Maybe Drag -> Board -> Board
+placePiece (Location rankIndex fileIndex) drag board =
+    case drag of
+        Nothing ->
+            board
+
+        Just (Drag player piece) ->
+            List.updateAt rankIndex (\rank -> List.updateAt fileIndex (\_ -> Occupied player piece) rank) board
 
 
 
@@ -85,7 +164,44 @@ view : Model -> Html Msg
 view model =
     svg
         [ width (toString boardSize), height (toString boardSize), viewBox boardViewBox ]
-        (List.indexedMap rankView (Debug.log "board" model.board))
+        [ boardView model.board
+        , dragView model
+        ]
+
+
+boardView : Board -> Svg Msg
+boardView board =
+    g
+        [ onMouseMove MouseMoved ]
+        (List.indexedMap rankView (Debug.log "board" board))
+
+
+onMouseMove : (MouseMove -> Msg) -> Svg.Attribute Msg
+onMouseMove callback =
+    Svg.Events.on "mousemove" (JD.map callback mouseMoveDecoder)
+
+
+
+-- Svg.Events.on "mousemove" (JD.succeed (MouseMoved { clientX = 100, clientY = 100, targetOffsetX = 50, targetOffsetY = 50 }))
+
+
+mouseMoveDecoder : JD.Decoder MouseMove
+mouseMoveDecoder =
+    JDP.decode MouseMove
+        |> JDP.required "clientX" JD.int
+        |> JDP.required "clientY" JD.int
+        |> JDP.requiredAt [ "target", "offsetLeft" ] JD.int
+        |> JDP.requiredAt [ "target", "offsetTop" ] JD.int
+
+
+dragView : Model -> Svg Msg
+dragView { drag, mousePosition } =
+    case drag of
+        Nothing ->
+            Svg.text ""
+
+        Just (Drag player piece) ->
+            pieceView piece player [] (toFloat mousePosition.x) (toFloat mousePosition.y)
 
 
 boardViewBox =
@@ -106,20 +222,21 @@ squareView rankIndex fileIndex square =
         , y (toString <| (7 - fileIndex) * squareSize)
         , width <| toString <| squareSize
         , height <| toString <| squareSize
+        , onMouseUp (DragEnd (Location rankIndex fileIndex))
         ]
         [ squareFillView rankIndex fileIndex square
         , coordinateAnnotationView rankIndex fileIndex
-        , squarePieceView square
+        , squarePieceView square (Location rankIndex fileIndex)
         ]
 
 
-squarePieceView square =
+squarePieceView square location =
     case square of
         Empty ->
             g [] []
 
         Occupied player piece ->
-            pieceView piece player [] (toFloat <| squareSize // 2) (toFloat <| squareSize // 2)
+            pieceView piece player [ onMouseDown (DragStart player piece location) ] (toFloat <| squareSize // 2) (toFloat <| squareSize // 2)
 
 
 pieceView : Piece -> Player -> (List (Svg.Attribute msg) -> Float -> Float -> Svg msg)
@@ -246,6 +363,15 @@ indexToRank index =
 
 
 
+---- SUBSCRIPTIONS ----
+
+
+subscriptions : Model -> Sub Msg
+subscriptions model =
+    Sub.none
+
+
+
 ---- PROGRAM ----
 
 
@@ -255,5 +381,5 @@ main =
         { view = view
         , init = init
         , update = update
-        , subscriptions = always Sub.none
+        , subscriptions = subscriptions
         }
