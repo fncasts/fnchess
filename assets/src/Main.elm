@@ -4,7 +4,7 @@ import Html exposing (Html, div, h1, img)
 import Html.Attributes exposing (src)
 import List.Extra as List
 import Svg exposing (svg, rect, Svg, g, text_, text)
-import Svg.Attributes exposing (width, height, rx, ry, viewBox, x, y, fill, fontSize)
+import Svg.Attributes exposing (width, height, rx, ry, viewBox, x, y, fill, fontSize, style)
 import Svg.Events exposing (onMouseDown, onMouseUp, onMouseMove)
 import Arithmetic exposing (isEven)
 import Piece
@@ -59,10 +59,8 @@ type Drag
 
 
 type alias MouseMove =
-    { clientX : Int
-    , clientY : Int
-    , targetOffsetX : Int
-    , targetOffsetY : Int
+    { offsetX : Int
+    , offsetY : Int
     }
 
 
@@ -132,8 +130,8 @@ update msg model =
                 , Cmd.none
                 )
 
-        MouseMoved { clientX, clientY, targetOffsetX, targetOffsetY } ->
-            ( { model | mousePosition = { x = clientX - targetOffsetX, y = clientY - targetOffsetY } }, Cmd.none )
+        MouseMoved { offsetX, offsetY } ->
+            ( { model | mousePosition = { x = offsetX, y = offsetY } }, Cmd.none )
 
 
 emptySquare : Location -> Board -> Board
@@ -181,17 +179,11 @@ onMouseMove callback =
     Svg.Events.on "mousemove" (JD.map callback mouseMoveDecoder)
 
 
-
--- Svg.Events.on "mousemove" (JD.succeed (MouseMoved { clientX = 100, clientY = 100, targetOffsetX = 50, targetOffsetY = 50 }))
-
-
 mouseMoveDecoder : JD.Decoder MouseMove
 mouseMoveDecoder =
     JDP.decode MouseMove
-        |> JDP.required "clientX" JD.int
-        |> JDP.required "clientY" JD.int
-        |> JDP.requiredAt [ "target", "offsetLeft" ] JD.int
-        |> JDP.requiredAt [ "target", "offsetTop" ] JD.int
+        |> JDP.required "offsetX" JD.int
+        |> JDP.required "offsetY" JD.int
 
 
 dragView : Model -> Svg Msg
@@ -201,7 +193,7 @@ dragView { drag, mousePosition } =
             Svg.text ""
 
         Just (Drag player piece) ->
-            pieceView piece player [] (toFloat mousePosition.x) (toFloat mousePosition.y)
+            pieceView piece player [ style "pointer-events: none;" ] (toFloat mousePosition.x) (toFloat mousePosition.y)
 
 
 boardViewBox =
