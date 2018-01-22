@@ -4,7 +4,7 @@ import Html exposing (Html, div, h1, img)
 import Html.Attributes exposing (src)
 import List.Extra as List
 import Svg exposing (svg, rect, Svg, g, text_, text)
-import Svg.Attributes exposing (width, height, rx, ry, viewBox, x, y, fill, fontSize, style)
+import Svg.Attributes exposing (width, height, rx, ry, viewBox, x, y, fill, fontSize, style, transform)
 import Svg.Events exposing (onMouseDown, onMouseUp, onMouseMove)
 import Arithmetic exposing (isEven)
 import Piece
@@ -20,6 +20,7 @@ type alias Model =
     { board : Board
     , drag : Maybe Drag
     , mousePosition : Mouse.Position
+    , mouseMovementX : Int
     }
 
 
@@ -55,12 +56,13 @@ type alias Rank =
 
 
 type Drag
-    = Drag Player Piece
+    = Drag Location Player Piece
 
 
 type alias MouseMove =
     { offsetX : Int
     , offsetY : Int
+    , movementX : Int
     }
 
 
@@ -69,6 +71,7 @@ init =
     ( { board = newGame
       , drag = Nothing
       , mousePosition = { x = 0, y = 0 }
+      , mouseMovementX = 0
       }
     , Cmd.none
     )
@@ -98,6 +101,7 @@ type Msg
     | DragStart Player Piece Location
     | DragEnd Location
     | MouseMoved MouseMove
+    | DragReleasedOutsideBoard
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -113,10 +117,22 @@ update msg model =
             in
                 ( { model
                     | board = updatedBoard
-                    , drag = Just (Drag player piece)
+                    , drag = Just (Drag location player piece)
                   }
                 , Cmd.none
                 )
+
+        DragReleasedOutsideBoard ->
+            case model.drag of
+                Just (Drag origin player piece) ->
+                    let
+                        updatedBoard =
+                            placePiece origin model.drag model.board
+                    in
+                        ( { model | drag = Nothing, board = updatedBoard }, Cmd.none )
+
+                Nothing ->
+                    ( model, Cmd.none )
 
         DragEnd location ->
             let
@@ -130,8 +146,8 @@ update msg model =
                 , Cmd.none
                 )
 
-        MouseMoved { offsetX, offsetY } ->
-            ( { model | mousePosition = { x = offsetX, y = offsetY } }, Cmd.none )
+        MouseMoved { offsetX, offsetY, movementX } ->
+            ( { model | mousePosition = { x = offsetX, y = offsetY }, mouseMovementX = movementX }, Cmd.none )
 
 
 emptySquare : Location -> Board -> Board
@@ -150,8 +166,14 @@ placePiece (Location rankIndex fileIndex) drag board =
         Nothing ->
             board
 
-        Just (Drag player piece) ->
-            List.updateAt rankIndex (\rank -> List.updateAt fileIndex (\_ -> Occupied player piece) rank) board
+        Just (Drag origin player piece) ->
+            List.updateAt rankIndex
+                (\rank ->
+                    List.updateAt fileIndex
+                        (\_ -> Occupied player piece)
+                        rank
+                )
+                board
 
 
 
@@ -161,7 +183,10 @@ placePiece (Location rankIndex fileIndex) drag board =
 view : Model -> Html Msg
 view model =
     svg
-        [ width (toString boardSize), height (toString boardSize), viewBox boardViewBox ]
+        [ width (toString boardSize)
+        , height (toString boardSize)
+        , viewBox boardViewBox
+        ]
         [ boardView model.board
         , dragView model
         ]
@@ -171,7 +196,7 @@ boardView : Board -> Svg Msg
 boardView board =
     g
         [ onMouseMove MouseMoved ]
-        (List.indexedMap rankView (Debug.log "board" board))
+        (List.indexedMap rankView board)
 
 
 onMouseMove : (MouseMove -> Msg) -> Svg.Attribute Msg
@@ -184,16 +209,37 @@ mouseMoveDecoder =
     JDP.decode MouseMove
         |> JDP.required "offsetX" JD.int
         |> JDP.required "offsetY" JD.int
+        |> JDP.required "movementX" JD.int
 
 
 dragView : Model -> Svg Msg
-dragView { drag, mousePosition } =
+dragView { drag, mousePosition, mouseMovementX } =
     case drag of
         Nothing ->
             Svg.text ""
 
-        Just (Drag player piece) ->
-            pieceView piece player [ style "pointer-events: none;" ] (toFloat mousePosition.x) (toFloat mousePosition.y)
+        Just (Drag origin player piece) ->
+            let
+                offset =
+                    squareSize // 2
+
+                rotation =
+                    clamp -15 15 mouseMovementX
+            in
+                svg
+                    [ x <| toString <| mousePosition.x - offset
+                    , y <| toString <| mousePosition.y - offset
+                    , height (toString squareSize)
+                    , width (toString squareSize)
+                    ]
+                    [ pieceView piece
+                        player
+                        [ style "pointer-events: none;"
+                        , transform <| "rotate(" ++ (toString rotation) ++ " 0 0)"
+                        ]
+                        (toFloat <| squareSize // 2)
+                        (toFloat <| squareSize // 2)
+                    ]
 
 
 boardViewBox =
@@ -233,54 +279,57 @@ squarePieceView square location =
 
 pieceView : Piece -> Player -> (List (Svg.Attribute msg) -> Float -> Float -> Svg msg)
 pieceView piece player attrs left top =
-    case piece of
-        Pawn ->
-            case player of
-                Black ->
-                    Piece.blackPawn attrs left top
+    g
+        attrs
+        [ case piece of
+            Pawn ->
+                case player of
+                    Black ->
+                        Piece.blackPawn [] left top
 
-                White ->
-                    Piece.whitePawn attrs left top
+                    White ->
+                        Piece.whitePawn [] left top
 
-        Bishop ->
-            case player of
-                Black ->
-                    Piece.blackBishop attrs left top
+            Bishop ->
+                case player of
+                    Black ->
+                        Piece.blackBishop [] left top
 
-                White ->
-                    Piece.whiteBishop attrs left top
+                    White ->
+                        Piece.whiteBishop [] left top
 
-        Knight ->
-            case player of
-                Black ->
-                    Piece.blackKnight attrs left top
+            Knight ->
+                case player of
+                    Black ->
+                        Piece.blackKnight [] left top
 
-                White ->
-                    Piece.whiteKnight attrs left top
+                    White ->
+                        Piece.whiteKnight [] left top
 
-        King ->
-            case player of
-                Black ->
-                    Piece.blackKing attrs left top
+            King ->
+                case player of
+                    Black ->
+                        Piece.blackKing [] left top
 
-                White ->
-                    Piece.whiteKing attrs left top
+                    White ->
+                        Piece.whiteKing [] left top
 
-        Queen ->
-            case player of
-                Black ->
-                    Piece.blackQueen attrs left top
+            Queen ->
+                case player of
+                    Black ->
+                        Piece.blackQueen [] left top
 
-                White ->
-                    Piece.whiteQueen attrs left top
+                    White ->
+                        Piece.whiteQueen [] left top
 
-        Rook ->
-            case player of
-                Black ->
-                    Piece.blackRook attrs left top
+            Rook ->
+                case player of
+                    Black ->
+                        Piece.blackRook [] left top
 
-                White ->
-                    Piece.whiteRook attrs left top
+                    White ->
+                        Piece.whiteRook [] left top
+        ]
 
 
 squareFillView : Int -> Int -> Square -> Svg Msg
@@ -360,7 +409,7 @@ indexToRank index =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Sub.none
+    Mouse.ups (\_ -> DragReleasedOutsideBoard)
 
 
 
