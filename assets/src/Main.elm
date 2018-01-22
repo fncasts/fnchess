@@ -4,7 +4,7 @@ import Html exposing (Html, div, h1, img)
 import Html.Attributes exposing (src)
 import List.Extra as List
 import Svg exposing (svg, rect, Svg, g, text_, text)
-import Svg.Attributes exposing (width, height, rx, ry, viewBox, x, y, fill, fontSize, style, transform)
+import Svg.Attributes exposing (width, height, rx, ry, viewBox, x, y, fill, fontSize, style, transform, class)
 import Svg.Events exposing (onMouseDown, onMouseUp, onMouseMove)
 import Arithmetic exposing (isEven)
 import Piece
@@ -231,11 +231,11 @@ dragView { drag, mousePosition, mouseMovementX } =
                     , y <| toString <| mousePosition.y - offset
                     , height (toString squareSize)
                     , width (toString squareSize)
+                    , style "pointer-events: none;"
                     ]
                     [ pieceView piece
                         player
-                        [ style "pointer-events: none;"
-                        , transform <| "rotate(" ++ (toString rotation) ++ " 0 0)"
+                        [ transform <| "rotate(" ++ (toString rotation) ++ " 0 0)"
                         ]
                         (toFloat <| squareSize // 2)
                         (toFloat <| squareSize // 2)
@@ -280,7 +280,7 @@ squarePieceView square location =
 pieceView : Piece -> Player -> (List (Svg.Attribute msg) -> Float -> Float -> Svg msg)
 pieceView piece player attrs left top =
     g
-        attrs
+        (attrs ++ [ class "piece" ])
         [ case piece of
             Pawn ->
                 case player of
@@ -371,8 +371,13 @@ letterView rankIndex =
         [ fontSize <| toString <| coordsFontSize
         , x <| toString <| (squareSize - coordsFontSize)
         , y <| toString <| (8 + squareSize - coordsFontSize)
+        , noTextSelect
         ]
         [ text (indexToRank rankIndex) ]
+
+
+noTextSelect =
+    style "user-select: none;"
 
 
 coordsFontSize =
@@ -385,6 +390,7 @@ numberView fileIndex =
         [ fontSize <| toString <| coordsFontSize
         , x "5"
         , y "18"
+        , noTextSelect
         ]
         [ text <| toString <| fileIndex + 1 ]
 
