@@ -13,7 +13,7 @@ import Mouse
 import Json.Decode as JD
 import Json.Decode.Pipeline as JDP
 import Uuid exposing (Uuid)
-import Model.Game as Game exposing (Board, Player(..), Piece(..), Location, Square(..), Rank)
+import Model.Game as Game exposing (Board, Player(..), Piece(..), Location, Square(..))
 
 
 ---- MODEL ----
@@ -126,7 +126,7 @@ boardView : Board -> Svg Msg
 boardView board =
     g
         [ onMouseMove MouseMoved ]
-        (List.indexedMap rankView board)
+        (Game.foldl squareView [] board)
 
 
 onMouseMove : (MouseMove -> Msg) -> Svg.Attribute Msg
@@ -178,24 +178,21 @@ boardViewBox =
         |> String.join " "
 
 
-rankView : Int -> Rank -> Svg Msg
-rankView rankIndex rank =
-    g [] (List.indexedMap (squareView rankIndex) rank)
-
-
-squareView : Int -> Int -> Square -> Svg Msg
-squareView rankIndex fileIndex square =
-    svg
-        [ x (toString <| rankIndex * squareSize)
-        , y (toString <| (7 - fileIndex) * squareSize)
-        , width <| toString <| squareSize
-        , height <| toString <| squareSize
-        , onMouseUp (DragEnd (Game.Location rankIndex fileIndex))
-        ]
-        [ squareFillView rankIndex fileIndex square
-        , coordinateAnnotationView rankIndex fileIndex
-        , squarePieceView square (Game.Location rankIndex fileIndex)
-        ]
+squareView : Int -> Int -> Square -> List (Svg Msg) -> List (Svg Msg)
+squareView rankIndex fileIndex square elements =
+    elements
+        ++ [ svg
+                [ x (toString <| rankIndex * squareSize)
+                , y (toString <| (7 - fileIndex) * squareSize)
+                , width <| toString <| squareSize
+                , height <| toString <| squareSize
+                , onMouseUp (DragEnd (Game.Location rankIndex fileIndex))
+                ]
+                [ squareFillView rankIndex fileIndex square
+                , coordinateAnnotationView rankIndex fileIndex
+                , squarePieceView square (Game.Location rankIndex fileIndex)
+                ]
+           ]
 
 
 squarePieceView square location =
