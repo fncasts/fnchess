@@ -13,6 +13,7 @@ import Mouse
 import Json.Decode as JD
 import Json.Decode.Pipeline as JDP
 import Uuid exposing (Uuid)
+import Model.Game as Game exposing (Board, Player(..), Piece(..), Location, Square(..), Rank)
 
 
 ---- MODEL ----
@@ -24,37 +25,6 @@ type alias Model =
     , mousePosition : Mouse.Position
     , mouseMovementX : Int
     }
-
-
-type Player
-    = White
-    | Black
-
-
-type Piece
-    = Pawn
-    | Rook
-    | Knight
-    | Bishop
-    | Queen
-    | King
-
-
-type Square
-    = Empty
-    | Occupied Player Piece
-
-
-type Location
-    = Location Int Int
-
-
-type alias Board =
-    List Rank
-
-
-type alias Rank =
-    List Square
 
 
 type Drag
@@ -70,26 +40,11 @@ type alias MouseMove =
 
 init : Uuid -> Model
 init uuid =
-    { board = newGame
+    { board = Game.newGame
     , drag = Nothing
     , mousePosition = { x = 0, y = 0 }
     , mouseMovementX = 0
     }
-
-
-newGame : Board
-newGame =
-    List.transpose <|
-        List.reverse <|
-            [ [ Occupied Black Rook, Occupied Black Knight, Occupied Black Bishop, Occupied Black Queen, Occupied Black King, Occupied Black Bishop, Occupied Black Knight, Occupied Black Rook ]
-            , [ Occupied Black Pawn, Occupied Black Pawn, Occupied Black Pawn, Occupied Black Pawn, Occupied Black Pawn, Occupied Black Pawn, Occupied Black Pawn, Occupied Black Pawn ]
-            , [ Empty, Empty, Empty, Empty, Empty, Empty, Empty, Empty ]
-            , [ Empty, Empty, Empty, Empty, Empty, Empty, Empty, Empty ]
-            , [ Empty, Empty, Empty, Empty, Empty, Empty, Empty, Empty ]
-            , [ Empty, Empty, Empty, Empty, Empty, Empty, Empty, Empty ]
-            , [ Occupied White Pawn, Occupied White Pawn, Occupied White Pawn, Occupied White Pawn, Occupied White Pawn, Occupied White Pawn, Occupied White Pawn, Occupied White Pawn ]
-            , [ Occupied White Rook, Occupied White Knight, Occupied White Bishop, Occupied White Queen, Occupied White King, Occupied White Bishop, Occupied White Knight, Occupied White Rook ]
-            ]
 
 
 
@@ -113,7 +68,7 @@ update msg model =
         DragStart player piece location ->
             let
                 updatedBoard =
-                    emptySquare location model.board
+                    Game.removePieceAt location model.board
             in
                 ( { model
                     | board = updatedBoard
@@ -127,7 +82,7 @@ update msg model =
                 Just (Drag origin player piece) ->
                     let
                         updatedBoard =
-                            placePiece origin model.drag model.board
+                            Game.placePieceAt origin player piece model.board
                     in
                         ( { model | drag = Nothing, board = updatedBoard }, Cmd.none )
 
@@ -135,45 +90,20 @@ update msg model =
                     ( model, Cmd.none )
 
         DragEnd location ->
-            let
-                updatedBoard =
-                    placePiece location model.drag model.board
-            in
-                ( { model
-                    | board = updatedBoard
-                    , drag = Nothing
-                  }
-                , Cmd.none
-                )
+            case model.drag of
+                Nothing ->
+                    ( model, Cmd.none )
+
+                Just (Drag origin player piece) ->
+                    ( { model
+                        | board = Game.placePieceAt location player piece model.board
+                        , drag = Nothing
+                      }
+                    , Cmd.none
+                    )
 
         MouseMoved { offsetX, offsetY, movementX } ->
             ( { model | mousePosition = { x = offsetX, y = offsetY }, mouseMovementX = movementX }, Cmd.none )
-
-
-emptySquare : Location -> Board -> Board
-emptySquare (Location rankIndex fileIndex) board =
-    List.updateAt rankIndex (\rank -> emptySquareInRank rank fileIndex) board
-
-
-emptySquareInRank : Rank -> Int -> Rank
-emptySquareInRank rank fileIndex =
-    List.updateAt fileIndex (\_ -> Empty) rank
-
-
-placePiece : Location -> Maybe Drag -> Board -> Board
-placePiece (Location rankIndex fileIndex) drag board =
-    case drag of
-        Nothing ->
-            board
-
-        Just (Drag origin player piece) ->
-            List.updateAt rankIndex
-                (\rank ->
-                    List.updateAt fileIndex
-                        (\_ -> Occupied player piece)
-                        rank
-                )
-                board
 
 
 
@@ -260,11 +190,11 @@ squareView rankIndex fileIndex square =
         , y (toString <| (7 - fileIndex) * squareSize)
         , width <| toString <| squareSize
         , height <| toString <| squareSize
-        , onMouseUp (DragEnd (Location rankIndex fileIndex))
+        , onMouseUp (DragEnd (Game.Location rankIndex fileIndex))
         ]
         [ squareFillView rankIndex fileIndex square
         , coordinateAnnotationView rankIndex fileIndex
-        , squarePieceView square (Location rankIndex fileIndex)
+        , squarePieceView square (Game.Location rankIndex fileIndex)
         ]
 
 
