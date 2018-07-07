@@ -1,6 +1,25 @@
-module Model.Game exposing (Player(..), Piece(..), Location(..), Square(..), Board, placePieceAt, removePieceAt, newGame, foldl)
+module Model.Game
+    exposing
+        ( Player(..)
+        , Piece(..)
+        , Location(..)
+        , Square(..)
+        , Board
+        , Game
+        , placePieceAt
+        , removePieceAt
+        , newGame
+        , foldl
+        , GameName
+        , nameDecoder
+        , gameNameToString
+        , gameNameFromString
+        , decoder
+        , applyEvent
+        )
 
 import List.Extra as List
+import Json.Decode as JD
 
 
 type Player
@@ -34,6 +53,19 @@ type alias Rank =
     List Square
 
 
+type alias Game =
+    { events : List Event
+    }
+
+
+type Event
+    = Move Location Location
+
+
+type GameName
+    = GameName String
+
+
 newGame : Board
 newGame =
     Board <|
@@ -48,6 +80,35 @@ newGame =
                 , [ Occupied White Pawn, Occupied White Pawn, Occupied White Pawn, Occupied White Pawn, Occupied White Pawn, Occupied White Pawn, Occupied White Pawn, Occupied White Pawn ]
                 , [ Occupied White Rook, Occupied White Knight, Occupied White Bishop, Occupied White Queen, Occupied White King, Occupied White Bishop, Occupied White Knight, Occupied White Rook ]
                 ]
+
+
+applyEvent : Event -> Board -> Board
+applyEvent event board =
+    case Debug.log "applying" event of
+        Move origin destination ->
+            case squareAt origin board of
+                Empty ->
+                    board
+
+                Occupied player piece ->
+                    board
+                        |> removePieceAt origin
+                        |> placePieceAt destination player piece
+
+
+squareAt : Location -> Board -> Square
+squareAt (Location rankIndex fileIndex) (Board ranks) =
+    let
+        maybeSquare =
+            List.getAt rankIndex ranks
+                |> Maybe.andThen (\rank -> List.getAt fileIndex rank)
+    in
+        case maybeSquare of
+            Just square ->
+                square
+
+            Nothing ->
+                Debug.crash "invalid location - should be impossible..."
 
 
 removePieceAt : Location -> Board -> Board
@@ -96,3 +157,57 @@ indexedSquares (Board ranks) =
             )
             ranks
         )
+
+
+
+--decodeGameState : JE.Value -> JD.Decoder GameState
+--decodeGameState json =
+--    decode GameState
+--        |>  required "events" (JD.list eventDecoder)
+--eventDecoder json =
+
+
+decoder : JD.Decoder Game
+decoder =
+    JD.map Game
+        (JD.field "events" (JD.list eventDecoder))
+
+
+eventDecoder : JD.Decoder Event
+eventDecoder =
+    JD.field "type" JD.string
+        |> JD.andThen eventDecoderHelp
+
+
+eventDecoderHelp : String -> JD.Decoder Event
+eventDecoderHelp type_ =
+    case type_ of
+        "move" ->
+            JD.map2 Move
+                (JD.field "origin" locationDecoder)
+                (JD.field "destination" locationDecoder)
+
+        _ ->
+            JD.fail "Invalid event"
+
+
+locationDecoder : JD.Decoder Location
+locationDecoder =
+    JD.map2 Location
+        (JD.field "rank" JD.int)
+        (JD.field "file" JD.int)
+
+
+nameDecoder =
+    JD.string
+        |> JD.map GameName
+
+
+gameNameToString : GameName -> String
+gameNameToString (GameName name) =
+    name
+
+
+gameNameFromString : String -> GameName
+gameNameFromString name =
+    GameName name

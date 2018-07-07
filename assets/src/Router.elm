@@ -3,11 +3,12 @@ module Router exposing (parse, toPath, Route(..))
 import Navigation
 import Uuid exposing (Uuid)
 import UrlParser exposing (oneOf, map, s, custom, Parser, (</>))
+import Model.Game as Game exposing (GameName, gameNameFromString)
 
 
 type Route
     = HomeRoute
-    | GameRoute Uuid
+    | GameRoute GameName
     | NotFoundRoute
 
 
@@ -17,8 +18,8 @@ toPath route =
         HomeRoute ->
             "/"
 
-        GameRoute uuid ->
-            "/game/" ++ Uuid.toString uuid
+        GameRoute name ->
+            "/game/" ++ (Game.gameNameToString name)
 
         NotFoundRoute ->
             "/notfound"
@@ -34,11 +35,11 @@ matchers : Parser (Route -> a) a
 matchers =
     oneOf
         [ map HomeRoute (s "")
-        , map GameRoute (s "game" </> uuidParser)
+        , map GameRoute (s "game" </> nameParser)
         ]
 
 
-uuidParser : Parser (Uuid -> a) a
-uuidParser =
-    custom "UUID" <|
-        (Uuid.fromString >> Result.fromMaybe "invalid game id")
+nameParser : Parser (GameName -> a) a
+nameParser =
+    custom "gameName" <|
+        (Game.gameNameFromString >> Ok)

@@ -1,8 +1,6 @@
 module Page.Game exposing (view, update, init, Msg, Model, subscriptions)
 
 import Html exposing (Html, div, h1, img, button)
-import Html.Attributes exposing (src)
-import Html.Events exposing (onClick)
 import List.Extra as List
 import Svg exposing (svg, rect, Svg, g, text_, text)
 import Svg.Attributes exposing (width, height, rx, ry, viewBox, x, y, fill, fontSize, style, transform, class)
@@ -11,16 +9,23 @@ import Arithmetic exposing (isEven)
 import Piece
 import Mouse
 import Json.Decode as JD
+import Json.Encode as JE
 import Json.Decode.Pipeline as JDP
 import Uuid exposing (Uuid)
 import Model.Game as Game exposing (Board, Player(..), Piece(..), Location, Square(..))
+import Phoenix
+import Phoenix.Socket as Socket exposing (Socket)
+import Phoenix.Channel as Channel exposing (Channel)
+import Phoenix.Push as Push exposing (Push)
+import Model.Game as Game exposing (Game)
 
 
 ---- MODEL ----
 
 
 type alias Model =
-    { board : Board
+    { gameName : Game.GameName
+    , board : Board
     , drag : Maybe Drag
     , mousePosition : Mouse.Position
     , mouseMovementX : Int
@@ -38,9 +43,10 @@ type alias MouseMove =
     }
 
 
-init : Uuid -> Model
-init uuid =
-    { board = Game.newGame
+init : Game.GameName -> Model
+init name =
+    { gameName = name
+    , board = Game.newGame
     , drag = Nothing
     , mousePosition = { x = 0, y = 0 }
     , mouseMovementX = 0
@@ -57,6 +63,7 @@ type Msg
     | DragEnd Location
     | MouseMoved MouseMove
     | DragReleasedOutsideBoard
+    | GameUpdated (Result String Game)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -89,21 +96,68 @@ update msg model =
                 Nothing ->
                     ( model, Cmd.none )
 
-        DragEnd location ->
+        DragEnd destination ->
             case model.drag of
                 Nothing ->
                     ( model, Cmd.none )
 
                 Just (Drag origin player piece) ->
                     ( { model
-                        | board = Game.placePieceAt location player piece model.board
+                        | board = Game.placePieceAt destination player piece model.board
                         , drag = Nothing
                       }
-                    , Cmd.none
+                    , Phoenix.push socketUrl (pushEvent (Move origin destination) model)
                     )
 
         MouseMoved { offsetX, offsetY, movementX } ->
-            ( { model | mousePosition = { x = offsetX, y = offsetY }, mouseMovementX = movementX }, Cmd.none )
+            ( { model | mousePosition = { x = offsetX, y = offsetY }, mouseMovementX = movementX }
+            , Cmd.none
+            )
+
+        GameUpdated gameResult ->
+            case gameResult of
+                Ok game ->
+                    let
+                        updatedBoard =
+                            List.foldl Game.applyEvent Game.newGame game.events
+                    in
+                        ( { model | board = updatedBoard }, Cmd.none )
+
+                Err message ->
+                    let
+                        _ =
+                            Debug.log "gameUpdateFailed" message
+                    in
+                        ( model, Cmd.none )
+
+
+pushEvent : Event -> Model -> Push Msg
+pushEvent event model =
+    Push.init (gameChannelName model) "event"
+        |> Push.withPayload (encodeEvent event)
+
+
+encodeEvent : Event -> JE.Value
+encodeEvent event =
+    case event of
+        Move origin destination ->
+            JE.object
+                [ ( "type", JE.string "move" )
+                , ( "origin", encodeLocation origin )
+                , ( "destination", encodeLocation destination )
+                ]
+
+
+encodeLocation : Game.Location -> JE.Value
+encodeLocation (Game.Location rankIndex fileIndex) =
+    JE.object
+        [ ( "rank", JE.int rankIndex )
+        , ( "file", JE.int fileIndex )
+        ]
+
+
+type Event
+    = Move Location Location
 
 
 
@@ -342,4 +396,27 @@ indexToRank index =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Mouse.ups (\_ -> DragReleasedOutsideBoard)
+    Sub.batch
+        [ Mouse.ups (\_ -> DragReleasedOutsideBoard)
+        , Phoenix.connect socket [ gameChannel model ]
+        ]
+
+
+gameChannel : Model -> Channel Msg
+gameChannel model =
+    Channel.init (gameChannelName model)
+        |> Channel.on "game_updated" (JD.decodeValue Game.decoder >> GameUpdated)
+
+
+gameChannelName : { a | gameName : Game.GameName } -> String
+gameChannelName { gameName } =
+    ("game:" ++ (Game.gameNameToString gameName))
+
+
+socket : Socket Msg
+socket =
+    Socket.init socketUrl
+
+
+socketUrl =
+    "ws://localhost:4000/socket/websocket"
