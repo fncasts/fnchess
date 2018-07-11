@@ -137,7 +137,7 @@ update msg model =
 
 updateSignedIn : SignedInMsg -> SignedInModel -> ( SignedInModel, Cmd SignedInMsg )
 updateSignedIn msg model =
-    case ( Debug.log "Update" msg, model.page ) of
+    case ( msg, model.page ) of
         ( StartGameClicked, HomePage ) ->
             ( model, requestNewGame NewGameResponseReceived )
 
@@ -229,10 +229,9 @@ subscriptions model =
         SignedIn signedInModel ->
             Sub.map SignedInMsg <|
                 Sub.batch <|
-                    Debug.log "subscriptions" <|
-                        [ pageSubscriptions signedInModel
-                        , Phoenix.connect socket [ lobbyChannel ]
-                        ]
+                    [ pageSubscriptions signedInModel
+                    , Phoenix.connect socket [ lobbyChannel ]
+                    ]
 
 
 lobbyChannel : Channel SignedInMsg

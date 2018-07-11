@@ -84,7 +84,7 @@ newGame =
 
 applyEvent : Event -> Board -> Board
 applyEvent event board =
-    case Debug.log "applying" event of
+    case event of
         Move origin destination ->
             case squareAt origin board of
                 Empty ->
