@@ -35,6 +35,7 @@ type Model
 
 type alias SignedOutModel =
     { username : String
+    , route : Router.Route
     }
 
 
@@ -43,7 +44,7 @@ type Username
 
 
 type alias SignedInModel =
-    { page : Page, route : Router.Route, username : Username }
+    { page : Page, username : Username }
 
 
 type Page
@@ -58,22 +59,22 @@ init location =
         route =
             Router.parse location
     in
-        ( SignedOut initSignedOut
+        ( SignedOut <| initSignedOut route
         , Cmd.none
         )
 
 
-initSignedOut : SignedOutModel
-initSignedOut =
+initSignedOut : Router.Route -> SignedOutModel
+initSignedOut route =
     { username = ""
+    , route = route
     }
 
 
-initSignedIn : String -> SignedInModel
-initSignedIn username =
+initSignedIn : String -> Route -> SignedInModel
+initSignedIn username route =
     { username = Username username
-    , page = HomePage
-    , route = Router.HomeRoute
+    , page = pageFor route
     }
 
 
@@ -85,11 +86,11 @@ type Msg
     = SignedInMsg SignedInMsg
     | UsernameUpdated String
     | SubmitUsername
+    | RouteChanged Navigation.Location
 
 
 type SignedInMsg
     = NoOp
-    | RouteChanged Navigation.Location
     | StartGameClicked
     | GameMsg GamePage.Msg
     | NewGameResponseReceived (Result String GameName)
@@ -102,7 +103,7 @@ update msg model =
             ( SignedOut { signedOutModel | username = username }, Cmd.none )
 
         ( SubmitUsername, SignedOut signedOutModel ) ->
-            ( SignedIn <| initSignedIn signedOutModel.username, Cmd.none )
+            ( SignedIn <| initSignedIn signedOutModel.username signedOutModel.route, Cmd.none )
 
         ( SignedInMsg signedInMsg, SignedIn signedInModel ) ->
             let
@@ -110,6 +111,12 @@ update msg model =
                     updateSignedIn signedInMsg signedInModel
             in
                 ( SignedIn updatedSignedInModel, Cmd.map SignedInMsg cmd )
+
+        ( RouteChanged location, SignedOut signedOutModel ) ->
+            ( SignedOut { signedOutModel | route = Router.parse location }, Cmd.none )
+
+        ( RouteChanged location, SignedIn signedInModel ) ->
+            ( SignedIn { signedInModel | page = pageFor <| Router.parse location }, Cmd.none )
 
         ( _, _ ) ->
             ( model, Cmd.none )
@@ -120,13 +127,6 @@ updateSignedIn msg model =
     case ( Debug.log "Update" msg, model.page ) of
         ( NoOp, _ ) ->
             ( model, Cmd.none )
-
-        ( RouteChanged location, _ ) ->
-            let
-                route =
-                    Router.parse location
-            in
-                ( { model | route = route, page = pageFor route }, Cmd.none )
 
         ( StartGameClicked, HomePage ) ->
             ( model, requestNewGame NewGameResponseReceived )
@@ -295,7 +295,7 @@ socketUrl =
 main : Program Never Model Msg
 main =
     Navigation.program
-        (SignedInMsg << RouteChanged)
+        RouteChanged
         { view = view
         , init = init
         , update = update
