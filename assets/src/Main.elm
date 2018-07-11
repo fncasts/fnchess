@@ -1,4 +1,4 @@
-module Main exposing (..)
+port module Main exposing (..)
 
 import Html exposing (Html, div, h1, img, button, input, Attribute)
 import Html.Attributes exposing (src, value)
@@ -23,13 +23,16 @@ import Phoenix.Push as Push
 import Phoenix.Channel as Channel exposing (Channel)
 import Phoenix.Socket as Socket exposing (Socket)
 import Model.Game as Game exposing (Game, GameName)
+import Task
+import LocalStorage
 
 
 ---- MODEL ----
 
 
 type Model
-    = SignedOut SignedOutModel
+    = Restoring Router.Route
+    | SignedOut SignedOutModel
     | SignedIn SignedInModel
 
 
@@ -59,8 +62,8 @@ init location =
         route =
             Router.parse location
     in
-        ( SignedOut <| initSignedOut route
-        , Cmd.none
+        ( Restoring route
+        , restoreUsername
         )
 
 
@@ -87,10 +90,12 @@ type Msg
     | UsernameUpdated String
     | SubmitUsername
     | RouteChanged Navigation.Location
+    | UsernameLoaded (Result String (Maybe String))
+    | MsgNoOp
 
 
 type SignedInMsg
-    = NoOp
+    = SignedInMsgNoOp
     | StartGameClicked
     | GameMsg GamePage.Msg
     | NewGameResponseReceived (Result String GameName)
@@ -99,11 +104,19 @@ type SignedInMsg
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case ( msg, model ) of
+        ( UsernameLoaded result, Restoring route ) ->
+            case result of
+                Ok (Just username) ->
+                    ( SignedIn <| initSignedIn username route, Cmd.none )
+
+                _ ->
+                    ( SignedOut <| initSignedOut route, Cmd.none )
+
         ( UsernameUpdated username, SignedOut signedOutModel ) ->
             ( SignedOut { signedOutModel | username = username }, Cmd.none )
 
         ( SubmitUsername, SignedOut signedOutModel ) ->
-            ( SignedIn <| initSignedIn signedOutModel.username signedOutModel.route, Cmd.none )
+            ( SignedIn <| initSignedIn signedOutModel.username signedOutModel.route, persistUsername signedOutModel.username )
 
         ( SignedInMsg signedInMsg, SignedIn signedInModel ) ->
             let
@@ -125,9 +138,6 @@ update msg model =
 updateSignedIn : SignedInMsg -> SignedInModel -> ( SignedInModel, Cmd SignedInMsg )
 updateSignedIn msg model =
     case ( Debug.log "Update" msg, model.page ) of
-        ( NoOp, _ ) ->
-            ( model, Cmd.none )
-
         ( StartGameClicked, HomePage ) ->
             ( model, requestNewGame NewGameResponseReceived )
 
@@ -172,6 +182,9 @@ pageFor route =
 view : Model -> Html Msg
 view model =
     case model of
+        Restoring _ ->
+            div [] [ text "loading..." ]
+
         SignedIn signedInModel ->
             signedInView signedInModel
 
@@ -207,6 +220,9 @@ signedInView signedInModel =
 subscriptions : Model -> Sub Msg
 subscriptions model =
     case model of
+        Restoring _ ->
+            Sub.none
+
         SignedOut _ ->
             Sub.none
 
@@ -310,3 +326,15 @@ todo message a =
             Debug.log "todo" message
     in
         a
+
+
+persistUsername : String -> Cmd Msg
+persistUsername username =
+    Task.attempt (\_ -> MsgNoOp) (LocalStorage.set "username" username)
+
+
+restoreUsername : Cmd Msg
+restoreUsername =
+    LocalStorage.get "username"
+        |> Task.mapError (\_ -> "unable to fetch username")
+        |> Task.attempt UsernameLoaded
