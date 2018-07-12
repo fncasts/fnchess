@@ -6,6 +6,7 @@ module Model.Game
         , Square(..)
         , Board
         , Game
+        , Event(..)
         , placePieceAt
         , removePieceAt
         , newGame
@@ -16,10 +17,12 @@ module Model.Game
         , gameNameFromString
         , decoder
         , applyEvent
+        , encodeEvent
         )
 
 import List.Extra as List
 import Json.Decode as JD
+import Json.Encode as JE
 
 
 type Player
@@ -160,11 +163,7 @@ indexedSquares (Board ranks) =
 
 
 
---decodeGameState : JE.Value -> JD.Decoder GameState
---decodeGameState json =
---    decode GameState
---        |>  required "events" (JD.list eventDecoder)
---eventDecoder json =
+-- DECODERS
 
 
 decoder : JD.Decoder Game
@@ -198,6 +197,7 @@ locationDecoder =
         (JD.field "file" JD.int)
 
 
+nameDecoder : JD.Decoder GameName
 nameDecoder =
     JD.string
         |> JD.map GameName
@@ -211,3 +211,26 @@ gameNameToString (GameName name) =
 gameNameFromString : String -> GameName
 gameNameFromString name =
     GameName name
+
+
+
+-- ENCODERS
+
+
+encodeEvent : Event -> JE.Value
+encodeEvent event =
+    case event of
+        Move origin destination ->
+            JE.object
+                [ ( "type", JE.string "move" )
+                , ( "origin", encodeLocation origin )
+                , ( "destination", encodeLocation destination )
+                ]
+
+
+encodeLocation : Location -> JE.Value
+encodeLocation (Location rankIndex fileIndex) =
+    JE.object
+        [ ( "rank", JE.int rankIndex )
+        , ( "file", JE.int fileIndex )
+        ]

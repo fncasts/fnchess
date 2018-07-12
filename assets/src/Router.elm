@@ -1,7 +1,6 @@
 module Router exposing (parse, toPath, Route(..))
 
 import Navigation
-import Uuid exposing (Uuid)
 import UrlParser exposing (oneOf, map, s, custom, Parser, (</>))
 import Model.Game as Game exposing (GameName, gameNameFromString)
 

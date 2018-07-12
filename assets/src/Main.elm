@@ -25,6 +25,7 @@ import Phoenix.Socket as Socket exposing (Socket)
 import Model.Game as Game exposing (Game, GameName)
 import Task
 import LocalStorage
+import Util
 
 
 ---- MODEL ----
@@ -147,7 +148,7 @@ updateSignedIn msg model =
                     ( model, Navigation.newUrl <| Router.toPath <| Router.GameRoute gameName )
 
                 Err message ->
-                    todo "handle newGame failed" ( model, Cmd.none )
+                    Util.todo "handle newGame failed"
 
         ( GameMsg gameMsg, GamePage gameModel ) ->
             let
@@ -316,15 +317,6 @@ main =
         , update = update
         , subscriptions = subscriptions
         }
-
-
-todo : String -> a -> a
-todo message a =
-    let
-        _ =
-            Debug.log "todo" message
-    in
-        a
 
 
 persistUsername : String -> Cmd Msg

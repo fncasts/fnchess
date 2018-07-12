@@ -18,6 +18,7 @@ import Phoenix.Socket as Socket exposing (Socket)
 import Phoenix.Channel as Channel exposing (Channel)
 import Phoenix.Push as Push exposing (Push)
 import Model.Game as Game exposing (Game)
+import Util
 
 
 ---- MODEL ----
@@ -106,7 +107,7 @@ update msg model =
                         | board = Game.placePieceAt destination player piece model.board
                         , drag = Nothing
                       }
-                    , Phoenix.push socketUrl (pushEvent (Move origin destination) model)
+                    , Phoenix.push socketUrl (pushEvent (Game.Move origin destination) model)
                     )
 
         MouseMoved { offsetX, offsetY, movementX } ->
@@ -124,40 +125,13 @@ update msg model =
                         ( { model | board = updatedBoard }, Cmd.none )
 
                 Err message ->
-                    let
-                        _ =
-                            Debug.log "gameUpdateFailed" message
-                    in
-                        ( model, Cmd.none )
+                    Util.todo "handle gameUpdateFailed"
 
 
-pushEvent : Event -> Model -> Push Msg
+pushEvent : Game.Event -> Model -> Push Msg
 pushEvent event model =
     Push.init (gameChannelName model) "event"
-        |> Push.withPayload (encodeEvent event)
-
-
-encodeEvent : Event -> JE.Value
-encodeEvent event =
-    case event of
-        Move origin destination ->
-            JE.object
-                [ ( "type", JE.string "move" )
-                , ( "origin", encodeLocation origin )
-                , ( "destination", encodeLocation destination )
-                ]
-
-
-encodeLocation : Game.Location -> JE.Value
-encodeLocation (Game.Location rankIndex fileIndex) =
-    JE.object
-        [ ( "rank", JE.int rankIndex )
-        , ( "file", JE.int fileIndex )
-        ]
-
-
-type Event
-    = Move Location Location
+        |> Push.withPayload (Game.encodeEvent event)
 
 
 
