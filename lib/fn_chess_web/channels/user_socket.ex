@@ -2,10 +2,11 @@ defmodule FnChessWeb.UserSocket do
   use Phoenix.Socket
 
   ## Channels
-  # channel "room:*", FnChessWeb.RoomChannel
+  channel("games:lobby", FnChessWeb.GamesChannel)
+  channel("game:*", FnChessWeb.GameChannel)
 
   ## Transports
-  transport :websocket, Phoenix.Transports.WebSocket
+  transport(:websocket, Phoenix.Transports.WebSocket)
   # transport :longpoll, Phoenix.Transports.LongPoll
 
   # Socket params are passed from the client and can

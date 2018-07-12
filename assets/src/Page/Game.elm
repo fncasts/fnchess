@@ -1,8 +1,6 @@
 module Page.Game exposing (view, update, init, Msg, Model, subscriptions)
 
 import Html exposing (Html, div, h1, img, button)
-import Html.Attributes exposing (src)
-import Html.Events exposing (onClick)
 import List.Extra as List
 import Svg exposing (svg, rect, Svg, g, text_, text)
 import Svg.Attributes exposing (width, height, rx, ry, viewBox, x, y, fill, fontSize, style, transform, class)
@@ -11,50 +9,28 @@ import Arithmetic exposing (isEven)
 import Piece
 import Mouse
 import Json.Decode as JD
+import Json.Encode as JE
 import Json.Decode.Pipeline as JDP
 import Uuid exposing (Uuid)
+import Model.Game as Game exposing (Board, Player(..), Piece(..), Location, Square(..))
+import Phoenix
+import Phoenix.Socket as Socket exposing (Socket)
+import Phoenix.Channel as Channel exposing (Channel)
+import Phoenix.Push as Push exposing (Push)
+import Model.Game as Game exposing (Game)
+import Util
 
 
 ---- MODEL ----
 
 
 type alias Model =
-    { board : Board
+    { gameName : Game.GameName
+    , board : Board
     , drag : Maybe Drag
     , mousePosition : Mouse.Position
     , mouseMovementX : Int
     }
-
-
-type Player
-    = White
-    | Black
-
-
-type Piece
-    = Pawn
-    | Rook
-    | Knight
-    | Bishop
-    | Queen
-    | King
-
-
-type Square
-    = Empty
-    | Occupied Player Piece
-
-
-type Location
-    = Location Int Int
-
-
-type alias Board =
-    List Rank
-
-
-type alias Rank =
-    List Square
 
 
 type Drag
@@ -68,28 +44,14 @@ type alias MouseMove =
     }
 
 
-init : Uuid -> Model
-init uuid =
-    { board = newGame
+init : Game.GameName -> Model
+init name =
+    { gameName = name
+    , board = Game.newGame
     , drag = Nothing
     , mousePosition = { x = 0, y = 0 }
     , mouseMovementX = 0
     }
-
-
-newGame : Board
-newGame =
-    List.transpose <|
-        List.reverse <|
-            [ [ Occupied Black Rook, Occupied Black Knight, Occupied Black Bishop, Occupied Black Queen, Occupied Black King, Occupied Black Bishop, Occupied Black Knight, Occupied Black Rook ]
-            , [ Occupied Black Pawn, Occupied Black Pawn, Occupied Black Pawn, Occupied Black Pawn, Occupied Black Pawn, Occupied Black Pawn, Occupied Black Pawn, Occupied Black Pawn ]
-            , [ Empty, Empty, Empty, Empty, Empty, Empty, Empty, Empty ]
-            , [ Empty, Empty, Empty, Empty, Empty, Empty, Empty, Empty ]
-            , [ Empty, Empty, Empty, Empty, Empty, Empty, Empty, Empty ]
-            , [ Empty, Empty, Empty, Empty, Empty, Empty, Empty, Empty ]
-            , [ Occupied White Pawn, Occupied White Pawn, Occupied White Pawn, Occupied White Pawn, Occupied White Pawn, Occupied White Pawn, Occupied White Pawn, Occupied White Pawn ]
-            , [ Occupied White Rook, Occupied White Knight, Occupied White Bishop, Occupied White Queen, Occupied White King, Occupied White Bishop, Occupied White Knight, Occupied White Rook ]
-            ]
 
 
 
@@ -102,18 +64,19 @@ type Msg
     | DragEnd Location
     | MouseMoved MouseMove
     | DragReleasedOutsideBoard
+    | GameUpdated (Result String Game)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
-    case Debug.log "Update" msg of
+    case msg of
         NoOp ->
             ( model, Cmd.none )
 
         DragStart player piece location ->
             let
                 updatedBoard =
-                    emptySquare location model.board
+                    Game.removePieceAt location model.board
             in
                 ( { model
                     | board = updatedBoard
@@ -127,53 +90,48 @@ update msg model =
                 Just (Drag origin player piece) ->
                     let
                         updatedBoard =
-                            placePiece origin model.drag model.board
+                            Game.placePieceAt origin player piece model.board
                     in
                         ( { model | drag = Nothing, board = updatedBoard }, Cmd.none )
 
                 Nothing ->
                     ( model, Cmd.none )
 
-        DragEnd location ->
-            let
-                updatedBoard =
-                    placePiece location model.drag model.board
-            in
-                ( { model
-                    | board = updatedBoard
-                    , drag = Nothing
-                  }
-                , Cmd.none
-                )
+        DragEnd destination ->
+            case model.drag of
+                Nothing ->
+                    ( model, Cmd.none )
+
+                Just (Drag origin player piece) ->
+                    ( { model
+                        | board = Game.placePieceAt destination player piece model.board
+                        , drag = Nothing
+                      }
+                    , Phoenix.push socketUrl (pushEvent (Game.Move origin destination) model)
+                    )
 
         MouseMoved { offsetX, offsetY, movementX } ->
-            ( { model | mousePosition = { x = offsetX, y = offsetY }, mouseMovementX = movementX }, Cmd.none )
+            ( { model | mousePosition = { x = offsetX, y = offsetY }, mouseMovementX = movementX }
+            , Cmd.none
+            )
+
+        GameUpdated gameResult ->
+            case gameResult of
+                Ok game ->
+                    let
+                        updatedBoard =
+                            List.foldl Game.applyEvent Game.newGame game.events
+                    in
+                        ( { model | board = updatedBoard }, Cmd.none )
+
+                Err message ->
+                    Util.todo "handle gameUpdateFailed"
 
 
-emptySquare : Location -> Board -> Board
-emptySquare (Location rankIndex fileIndex) board =
-    List.updateAt rankIndex (\rank -> emptySquareInRank rank fileIndex) board
-
-
-emptySquareInRank : Rank -> Int -> Rank
-emptySquareInRank rank fileIndex =
-    List.updateAt fileIndex (\_ -> Empty) rank
-
-
-placePiece : Location -> Maybe Drag -> Board -> Board
-placePiece (Location rankIndex fileIndex) drag board =
-    case drag of
-        Nothing ->
-            board
-
-        Just (Drag origin player piece) ->
-            List.updateAt rankIndex
-                (\rank ->
-                    List.updateAt fileIndex
-                        (\_ -> Occupied player piece)
-                        rank
-                )
-                board
+pushEvent : Game.Event -> Model -> Push Msg
+pushEvent event model =
+    Push.init (gameChannelName model) "event"
+        |> Push.withPayload (Game.encodeEvent event)
 
 
 
@@ -196,7 +154,7 @@ boardView : Board -> Svg Msg
 boardView board =
     g
         [ onMouseMove MouseMoved ]
-        (List.indexedMap rankView board)
+        (Game.foldl squareView [] board)
 
 
 onMouseMove : (MouseMove -> Msg) -> Svg.Attribute Msg
@@ -248,24 +206,21 @@ boardViewBox =
         |> String.join " "
 
 
-rankView : Int -> Rank -> Svg Msg
-rankView rankIndex rank =
-    g [] (List.indexedMap (squareView rankIndex) rank)
-
-
-squareView : Int -> Int -> Square -> Svg Msg
-squareView rankIndex fileIndex square =
-    svg
-        [ x (toString <| rankIndex * squareSize)
-        , y (toString <| (7 - fileIndex) * squareSize)
-        , width <| toString <| squareSize
-        , height <| toString <| squareSize
-        , onMouseUp (DragEnd (Location rankIndex fileIndex))
-        ]
-        [ squareFillView rankIndex fileIndex square
-        , coordinateAnnotationView rankIndex fileIndex
-        , squarePieceView square (Location rankIndex fileIndex)
-        ]
+squareView : Int -> Int -> Square -> List (Svg Msg) -> List (Svg Msg)
+squareView rankIndex fileIndex square elements =
+    elements
+        ++ [ svg
+                [ x (toString <| rankIndex * squareSize)
+                , y (toString <| (7 - fileIndex) * squareSize)
+                , width <| toString <| squareSize
+                , height <| toString <| squareSize
+                , onMouseUp (DragEnd (Game.Location rankIndex fileIndex))
+                ]
+                [ squareFillView rankIndex fileIndex square
+                , coordinateAnnotationView rankIndex fileIndex
+                , squarePieceView square (Game.Location rankIndex fileIndex)
+                ]
+           ]
 
 
 squarePieceView square location =
@@ -415,4 +370,27 @@ indexToRank index =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Mouse.ups (\_ -> DragReleasedOutsideBoard)
+    Sub.batch
+        [ Mouse.ups (\_ -> DragReleasedOutsideBoard)
+        , Phoenix.connect socket [ gameChannel model ]
+        ]
+
+
+gameChannel : Model -> Channel Msg
+gameChannel model =
+    Channel.init (gameChannelName model)
+        |> Channel.on "game_updated" (JD.decodeValue Game.decoder >> GameUpdated)
+
+
+gameChannelName : { a | gameName : Game.GameName } -> String
+gameChannelName { gameName } =
+    ("game:" ++ (Game.gameNameToString gameName))
+
+
+socket : Socket Msg
+socket =
+    Socket.init socketUrl
+
+
+socketUrl =
+    "ws://localhost:4000/socket/websocket"

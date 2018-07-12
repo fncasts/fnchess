@@ -8,12 +8,10 @@ defmodule FnChess.Application do
 
     # Define workers and child supervisors to be supervised
     children = [
-      # Start the Ecto repository
+      {Registry, keys: :unique, name: FnChess.GameRegistry},
+      supervisor(FnChess.GameSupervisor, []),
       supervisor(FnChess.Repo, []),
-      # Start the endpoint when the application starts
-      supervisor(FnChessWeb.Endpoint, []),
-      # Start your own worker by calling: FnChess.Worker.start_link(arg1, arg2, arg3)
-      # worker(FnChess.Worker, [arg1, arg2, arg3]),
+      supervisor(FnChessWeb.Endpoint, [])
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html

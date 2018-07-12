@@ -1,0 +1,2 @@
+lib/fn_chess_web/channels/game_channel.ex:5: Guard test _@1::'true' =:= 'false' can never succeed
+lib/fn_chess_web/channels/game_channel.ex:15: Expression produces a value of type 'ok' | {'error',_}, but this value is unmatched
