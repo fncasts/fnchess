@@ -18,11 +18,15 @@ module Model.Game
         , decoder
         , applyEvent
         , encodeEvent
+        , fromAscii
+        , toAscii
         )
 
 import List.Extra as List
 import Json.Decode as JD
 import Json.Encode as JE
+import Regex
+import Util exposing (submatches, unindent)
 
 
 type Player
@@ -234,3 +238,135 @@ encodeLocation (Location rankIndex fileIndex) =
         [ ( "rank", JE.int rankIndex )
         , ( "file", JE.int fileIndex )
         ]
+
+
+toAscii : Board -> String
+toAscii (Board ranks) =
+    ranks
+        |> List.transpose
+        |> List.reverse
+        |> List.map fileToAscii
+        |> String.join "\n"
+
+
+newline =
+    String.fromList [ '\n' ]
+
+
+
+-- ASCII ENCODING
+
+
+fileToAscii : List Square -> String
+fileToAscii squares =
+    squares
+        |> List.map squareToAscii
+        |> String.join " "
+
+
+squareToAscii : Square -> String
+squareToAscii square =
+    case square of
+        Occupied White Rook ->
+            "R"
+
+        Occupied White King ->
+            "K"
+
+        Occupied White Queen ->
+            "Q"
+
+        Occupied White Bishop ->
+            "B"
+
+        Occupied White Pawn ->
+            "P"
+
+        Occupied White Knight ->
+            "N"
+
+        Occupied Black Rook ->
+            "r"
+
+        Occupied Black King ->
+            "k"
+
+        Occupied Black Queen ->
+            "q"
+
+        Occupied Black Bishop ->
+            "b"
+
+        Occupied Black Pawn ->
+            "p"
+
+        Occupied Black Knight ->
+            "n"
+
+        Empty ->
+            "-"
+
+
+fromAscii : String -> Board
+fromAscii ascii =
+    ascii
+        |> unindent
+        |> String.trim
+        |> String.split "\n"
+        |> List.map (String.trim >> parseFile)
+        |> List.reverse
+        |> List.transpose
+        |> Board
+
+
+parseFile : String -> List Square
+parseFile asciiFile =
+    asciiFile
+        |> String.split " "
+        |> List.map parseSquare
+
+
+parseSquare : String -> Square
+parseSquare squareAscii =
+    case squareAscii of
+        "R" ->
+            Occupied White Rook
+
+        "K" ->
+            Occupied White King
+
+        "Q" ->
+            Occupied White Queen
+
+        "B" ->
+            Occupied White Bishop
+
+        "P" ->
+            Occupied White Pawn
+
+        "N" ->
+            Occupied White Knight
+
+        "r" ->
+            Occupied Black Rook
+
+        "k" ->
+            Occupied Black King
+
+        "q" ->
+            Occupied Black Queen
+
+        "b" ->
+            Occupied Black Bishop
+
+        "p" ->
+            Occupied Black Pawn
+
+        "n" ->
+            Occupied Black Knight
+
+        "-" ->
+            Empty
+
+        square ->
+            Util.todo <| "handle invalid square: " ++ square
