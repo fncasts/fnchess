@@ -2,6 +2,7 @@ module Page.Game exposing (view, update, init, Msg, Model, subscriptions)
 
 import Html exposing (Html, div, h1, img, button)
 import List.Extra as List
+import String.Extra exposing (fromCodePoints)
 import Svg exposing (svg, rect, Svg, g, text_, text)
 import Svg.Attributes exposing (width, height, rx, ry, viewBox, x, y, fill, fontSize, style, transform, class)
 import Svg.Events exposing (onMouseDown, onMouseUp, onMouseMove)
@@ -328,7 +329,7 @@ letterView rankIndex =
         , y <| toString <| (8 + squareSize - coordsFontSize)
         , noTextSelect
         ]
-        [ text (indexToRank rankIndex) ]
+        [ text (fromCodePoints [ rankIndex + 97 ]) ]
 
 
 noTextSelect =
@@ -356,13 +357,6 @@ boardSize =
 
 squareSize =
     boardSize // 8
-
-
-indexToRank index =
-    [ "a", "b", "c", "d", "e", "f", "g", "h" ]
-        |> List.getAt index
-        |> Maybe.withDefault ""
-
 
 
 ---- SUBSCRIPTIONS ----
