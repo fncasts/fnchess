@@ -1,11 +1,13 @@
 defmodule FnChess.Game do
   alias FnChess.Event
   alias __MODULE__
-  @enforce_keys [:events]
-  defstruct @enforce_keys
+  import Algae
 
   @type event() :: any()
-  @type t() :: %Game{events: list(event())}
+
+  defdata do
+    events :: list(event())
+  end
 
   @spec new() :: Game.t()
   def new() do
