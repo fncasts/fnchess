@@ -2,14 +2,15 @@ module Model.Game
     exposing
         ( Player(..)
         , Piece(..)
-        , Location(..)
         , Square(..)
         , Board
         , Game
         , Event(..)
+        , Board(..)
         , placePieceAt
         , removePieceAt
         , newGame
+        , emptyGame
         , foldl
         , GameName
         , nameDecoder
@@ -20,6 +21,7 @@ module Model.Game
         , encodeEvent
         , fromAscii
         , toAscii
+        , move
         )
 
 import List.Extra as List
@@ -27,6 +29,7 @@ import Json.Decode as JD
 import Json.Encode as JE
 import Regex
 import Util exposing (submatches, unindent)
+import Model.Location as Location exposing (Location)
 
 
 type Player
@@ -48,8 +51,12 @@ type Square
     | Occupied Player Piece
 
 
-type Location
-    = Location Int Int
+type alias RankIndex =
+    Int
+
+
+type alias FileIndex =
+    Int
 
 
 type Board
@@ -89,6 +96,20 @@ newGame =
                 ]
 
 
+emptyGame : Board
+emptyGame =
+    Board
+        [ [ Empty, Empty, Empty, Empty, Empty, Empty, Empty, Empty ]
+        , [ Empty, Empty, Empty, Empty, Empty, Empty, Empty, Empty ]
+        , [ Empty, Empty, Empty, Empty, Empty, Empty, Empty, Empty ]
+        , [ Empty, Empty, Empty, Empty, Empty, Empty, Empty, Empty ]
+        , [ Empty, Empty, Empty, Empty, Empty, Empty, Empty, Empty ]
+        , [ Empty, Empty, Empty, Empty, Empty, Empty, Empty, Empty ]
+        , [ Empty, Empty, Empty, Empty, Empty, Empty, Empty, Empty ]
+        , [ Empty, Empty, Empty, Empty, Empty, Empty, Empty, Empty ]
+        ]
+
+
 applyEvent : Event -> Board -> Board
 applyEvent event board =
     case event of
@@ -100,22 +121,7 @@ applyEvent event board =
                 Occupied player piece ->
                     board
                         |> removePieceAt origin
-                        |> placePieceAt destination player piece
-
-
-squareAt : Location -> Board -> Square
-squareAt (Location rankIndex fileIndex) (Board ranks) =
-    let
-        maybeSquare =
-            List.getAt rankIndex ranks
-                |> Maybe.andThen (\rank -> List.getAt fileIndex rank)
-    in
-        case maybeSquare of
-            Just square ->
-                square
-
-            Nothing ->
-                Debug.crash "invalid location - should be impossible..."
+                        |> placePieceAt player piece destination
 
 
 removePieceAt : Location -> Board -> Board
@@ -123,47 +129,48 @@ removePieceAt location board =
     updateSquare location (\_ -> Empty) board
 
 
-placePieceAt : Location -> Player -> Piece -> Board -> Board
-placePieceAt location player piece board =
+placePieceAt : Player -> Piece -> Location -> Board -> Board
+placePieceAt player piece location board =
     updateSquare location (\_ -> Occupied player piece) board
 
 
+move : ( Location, Location ) -> Board -> Board
+move ( origin, destination ) board =
+    case squareAt origin board of
+        Occupied player piece ->
+            board
+                |> removePieceAt origin
+                |> placePieceAt player piece destination
+
+        Empty ->
+            board
+
+
+squareAt : Location -> Board -> Square
+squareAt location (Board ranks) =
+    let
+        ( rankIndex, fileIndex ) =
+            Location.rankAndFileIndexes location
+    in
+        ranks
+            |> List.getAt rankIndex
+            |> Maybe.andThen (List.getAt fileIndex)
+            |> Maybe.withDefault Empty
+
+
 updateSquare : Location -> (Square -> Square) -> Board -> Board
-updateSquare (Location rankIndex fileIndex) update (Board board) =
+updateSquare location update (Board board) =
     Board <|
-        List.updateAt rankIndex
+        List.updateAt (Location.rankIndex location)
             (\rank ->
-                List.updateAt fileIndex
-                    update
-                    rank
+                List.updateAt (Location.fileIndex location) update rank
             )
             board
 
 
-foldl : (Int -> Int -> Square -> a -> a) -> a -> Board -> a
+foldl : (Location -> Square -> a -> a) -> a -> Board -> a
 foldl func acc board =
-    List.foldl
-        (\( rankIndex, fileIndex, square ) acc ->
-            func rankIndex fileIndex square acc
-        )
-        acc
-        (indexedSquares board)
-
-
-indexedSquares : Board -> List ( Int, Int, Square )
-indexedSquares (Board ranks) =
-    List.concat <|
-        (List.indexedMap
-            (\rankIndex rank ->
-                (List.indexedMap
-                    (\fileIndex square ->
-                        ( rankIndex, fileIndex, square )
-                    )
-                    rank
-                )
-            )
-            ranks
-        )
+    List.foldl (\location acc -> func location (squareAt location board) acc) acc Location.all
 
 
 
@@ -187,18 +194,11 @@ eventDecoderHelp type_ =
     case type_ of
         "move" ->
             JD.map2 Move
-                (JD.field "origin" locationDecoder)
-                (JD.field "destination" locationDecoder)
+                (JD.field "origin" Location.decoder)
+                (JD.field "destination" Location.decoder)
 
         _ ->
             JD.fail "Invalid event"
-
-
-locationDecoder : JD.Decoder Location
-locationDecoder =
-    JD.map2 Location
-        (JD.field "rank" JD.int)
-        (JD.field "file" JD.int)
 
 
 nameDecoder : JD.Decoder GameName
@@ -227,17 +227,9 @@ encodeEvent event =
         Move origin destination ->
             JE.object
                 [ ( "type", JE.string "move" )
-                , ( "origin", encodeLocation origin )
-                , ( "destination", encodeLocation destination )
+                , ( "origin", Location.encode origin )
+                , ( "destination", Location.encode destination )
                 ]
-
-
-encodeLocation : Location -> JE.Value
-encodeLocation (Location rankIndex fileIndex) =
-    JE.object
-        [ ( "rank", JE.int rankIndex )
-        , ( "file", JE.int fileIndex )
-        ]
 
 
 toAscii : Board -> String

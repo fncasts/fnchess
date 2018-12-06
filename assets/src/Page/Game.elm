@@ -12,7 +12,8 @@ import Json.Decode as JD
 import Json.Encode as JE
 import Json.Decode.Pipeline as JDP
 import Uuid exposing (Uuid)
-import Model.Game as Game exposing (Board, Player(..), Piece(..), Location, Square(..))
+import Model.Game as Game exposing (Board, Player(..), Piece(..), Square(..))
+import Model.Location as Location exposing (Location)
 import Phoenix
 import Phoenix.Socket as Socket exposing (Socket)
 import Phoenix.Channel as Channel exposing (Channel)
@@ -90,7 +91,7 @@ update msg model =
                 Just (Drag origin player piece) ->
                     let
                         updatedBoard =
-                            Game.placePieceAt origin player piece model.board
+                            Game.placePieceAt player piece origin model.board
                     in
                         ( { model | drag = Nothing, board = updatedBoard }, Cmd.none )
 
@@ -104,7 +105,7 @@ update msg model =
 
                 Just (Drag origin player piece) ->
                     ( { model
-                        | board = Game.placePieceAt destination player piece model.board
+                        | board = Game.placePieceAt player piece destination model.board
                         , drag = Nothing
                       }
                     , Phoenix.push socketUrl (pushEvent (Game.Move origin destination) model)
@@ -125,7 +126,7 @@ update msg model =
                         ( { model | board = updatedBoard }, Cmd.none )
 
                 Err message ->
-                    Util.todo "handle gameUpdateFailed"
+                    Util.todo ("handle gameUpdateFailed: " ++ message)
 
 
 pushEvent : Game.Event -> Model -> Push Msg
@@ -206,19 +207,19 @@ boardViewBox =
         |> String.join " "
 
 
-squareView : Int -> Int -> Square -> List (Svg Msg) -> List (Svg Msg)
-squareView rankIndex fileIndex square elements =
+squareView : Location -> Square -> List (Svg Msg) -> List (Svg Msg)
+squareView location square elements =
     elements
         ++ [ svg
-                [ x (toString <| rankIndex * squareSize)
-                , y (toString <| (7 - fileIndex) * squareSize)
+                [ x (toString <| (Location.rankIndex location) * squareSize)
+                , y (toString <| (7 - (Location.fileIndex location)) * squareSize)
                 , width <| toString <| squareSize
                 , height <| toString <| squareSize
-                , onMouseUp (DragEnd (Game.Location rankIndex fileIndex))
+                , onMouseUp (DragEnd location)
                 ]
-                [ squareFillView rankIndex fileIndex square
-                , coordinateAnnotationView rankIndex fileIndex
-                , squarePieceView square (Game.Location rankIndex fileIndex)
+                [ squareFillView location square
+                , coordinateAnnotationView location
+                , squarePieceView square location
                 ]
            ]
 
@@ -287,37 +288,44 @@ pieceView piece player attrs left top =
         ]
 
 
-squareFillView : Int -> Int -> Square -> Svg Msg
-squareFillView rankIndex fileIndex square =
+squareFillView : Location -> Square -> Svg Msg
+squareFillView location square =
     rect
         [ width (toString squareSize)
         , height (toString squareSize)
-        , fill <| squareColor rankIndex fileIndex
+        , fill <| squareColor location
         ]
         []
 
 
-squareColor : Int -> Int -> String
-squareColor rankIndex fileIndex =
-    if isEven (rankIndex + fileIndex) then
+squareColor : Location -> String
+squareColor location =
+    if isEven ((Location.rankIndex location) + (Location.fileIndex location)) then
         "#f2efc7"
     else
         "#d2bba0"
 
 
-coordinateAnnotationView : Int -> Int -> Svg Msg
-coordinateAnnotationView rankIndex fileIndex =
-    g [] <|
-        List.filterMap identity <|
-            [ if fileIndex == 0 then
-                Just <| letterView rankIndex
-              else
-                Nothing
-            , if rankIndex == 0 then
-                Just <| numberView fileIndex
-              else
-                Nothing
-            ]
+coordinateAnnotationView : Location -> Svg Msg
+coordinateAnnotationView location =
+    let
+        fileIndex =
+            Location.fileIndex location
+
+        rankIndex =
+            Location.rankIndex location
+    in
+        g [] <|
+            List.filterMap identity <|
+                [ if fileIndex == 0 then
+                    Just <| letterView rankIndex
+                  else
+                    Nothing
+                , if rankIndex == 0 then
+                    Just <| numberView fileIndex
+                  else
+                    Nothing
+                ]
 
 
 letterView : Int -> Svg Msg

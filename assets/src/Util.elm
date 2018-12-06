@@ -1,4 +1,4 @@
-module Util exposing (todo, submatches, unindent)
+module Util exposing (todo, submatches, unindent, (=>))
 
 import Regex
 
@@ -23,3 +23,7 @@ unindent text =
         |> List.map String.trim
         |> String.join "\n"
         |> String.trim
+
+
+(=>) a b =
+    ( a, b )
