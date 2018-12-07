@@ -1,8 +1,8 @@
-module Router exposing (parse, toPath, Route(..))
+module Router exposing (Route(..), parse, toPath)
 
-import Navigation
-import UrlParser exposing (oneOf, map, s, custom, Parser, (</>))
 import Model.Game as Game exposing (GameName, gameNameFromString)
+import Navigation
+import UrlParser exposing ((</>), Parser, custom, map, oneOf, s)
 
 
 type Route
@@ -18,7 +18,7 @@ toPath route =
             "/"
 
         GameRoute name ->
-            "/game/" ++ (Game.gameNameToString name)
+            "/game/" ++ Game.gameNameToString name
 
         NotFoundRoute ->
             "/notfound"

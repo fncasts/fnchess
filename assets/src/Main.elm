@@ -1,60 +1,61 @@
-port module Main exposing (..)
+module Main exposing (main)
 
-import Html exposing (Html, div, h1, img, button, input, Attribute)
-import Html.Attributes exposing (src, value)
-import Html.Events exposing (onClick, onInput, on, keyCode)
-import List.Extra as List
-import Svg exposing (svg, rect, Svg, g, text_, text)
-import Svg.Attributes exposing (width, height, rx, ry, viewBox, x, y, fill, fontSize, style, transform, class)
-import Svg.Events exposing (onMouseDown, onMouseUp, onMouseMove)
 import Arithmetic exposing (isEven)
-import Piece
-import Mouse
+import Html exposing (Attribute, Html, button, div, h1, img, input, text)
+import Html.Attributes exposing (src, value)
+import Html.Events exposing (keyCode, on, onClick, onInput)
 import Json.Decode as JD
 import Json.Decode.Pipeline as JDP
-import Navigation
-import Router exposing (Route(..))
-import Uuid exposing (Uuid)
-import Random.Pcg as Random
-import Page.Game as GamePage
-import Json.Decode as JD
-import Phoenix
-import Phoenix.Push as Push
-import Phoenix.Channel as Channel exposing (Channel)
-import Phoenix.Socket as Socket exposing (Socket)
-import Model.Game as Game exposing (Game, GameName)
-import Task
+import List.Extra as List
 import LocalStorage
+import Model.Game as Game exposing (Game, GameName)
+import Mouse
+import Navigation
+import Page.Game as Game
+import Page.Home as Home
+import Page.Login as Login
+import Page.NotFound as NotFound
+import Phoenix
+import Phoenix.Channel as Channel exposing (Channel)
+import Phoenix.Push as Push
+import Phoenix.Socket as Socket exposing (Socket)
+import Piece
+import Random.Pcg as Random
+import Return
+import Router exposing (Route(..))
+import Task
 import Util
+import Uuid exposing (Uuid)
 
 
----- MODEL ----
-
-
-type Model
-    = Restoring Router.Route
-    | SignedOut SignedOutModel
-    | SignedIn SignedInModel
-
-
-type alias SignedOutModel =
-    { username : String
-    , route : Router.Route
-    }
-
-
-type Username
-    = Username String
-
-
-type alias SignedInModel =
-    { page : Page, username : Username }
+type Msg
+    = RouteChanged Navigation.Location
+    | SessionRestored (Result String (Maybe String))
+    | LoginMsg Login.Msg
+    | HomeMsg Home.Msg
+    | GameMsg Game.Msg
+    | NoOp
 
 
 type Page
-    = HomePage
-    | GamePage GamePage.Model
+    = LoadingPage
+    | LoginPage Login.Model
+    | HomePage
+    | GamePage Game.Model
     | NotFoundPage
+
+
+type alias Model =
+    { session : Session
+    , route : Route
+    , page : Page
+    }
+
+
+type Session
+    = Restoring
+    | LoggedOut
+    | LoggedIn { username : String }
 
 
 init : Navigation.Location -> ( Model, Cmd Msg )
@@ -63,249 +64,107 @@ init location =
         route =
             Router.parse location
     in
-        ( Restoring route
-        , restoreUsername
-        )
-
-
-initSignedOut : Router.Route -> SignedOutModel
-initSignedOut route =
-    { username = ""
-    , route = route
-    }
-
-
-initSignedIn : String -> Route -> SignedInModel
-initSignedIn username route =
-    { username = Username username
-    , page = pageFor route
-    }
-
-
-
----- UPDATE ----
-
-
-type Msg
-    = SignedInMsg SignedInMsg
-    | UsernameUpdated String
-    | SubmitUsername
-    | RouteChanged Navigation.Location
-    | UsernameLoaded (Result String (Maybe String))
-    | MsgNoOp
-
-
-type SignedInMsg
-    = SignedInMsgNoOp
-    | StartGameClicked
-    | GameMsg GamePage.Msg
-    | NewGameResponseReceived (Result String GameName)
+    ( { route = route, session = Restoring, page = LoadingPage }
+    , restoreSession
+    )
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
-    case ( msg, model ) of
-        ( UsernameLoaded result, Restoring route ) ->
+    case ( msg, model.page ) of
+        ( RouteChanged location, _ ) ->
+            { model | route = Router.parse location } |> initPage
+
+        ( SessionRestored result, _ ) ->
             case result of
                 Ok (Just username) ->
-                    ( SignedIn <| initSignedIn username route, Cmd.none )
+                    { model | session = LoggedIn { username = username } }
+                        |> initPage
 
                 _ ->
-                    ( SignedOut <| initSignedOut route, Cmd.none )
+                    { model | session = LoggedOut } |> initPage
 
-        ( UsernameUpdated username, SignedOut signedOutModel ) ->
-            ( SignedOut { signedOutModel | username = username }, Cmd.none )
-
-        ( SubmitUsername, SignedOut signedOutModel ) ->
-            ( SignedIn <| initSignedIn signedOutModel.username signedOutModel.route, persistUsername signedOutModel.username )
-
-        ( SignedInMsg signedInMsg, SignedIn signedInModel ) ->
+        ( LoginMsg loginMsg, LoginPage loginPage ) ->
             let
-                ( updatedSignedInModel, cmd ) =
-                    updateSignedIn signedInMsg signedInModel
+                ( updatedLoginPage, outMsg ) =
+                    Login.update loginMsg loginPage
             in
-                ( SignedIn updatedSignedInModel, Cmd.map SignedInMsg cmd )
+            case outMsg of
+                Login.LoggedIn username ->
+                    model
+                        |> initSession username
+                        |> Return.andThen initPage
 
-        ( RouteChanged location, SignedOut signedOutModel ) ->
-            ( SignedOut { signedOutModel | route = Router.parse location }, Cmd.none )
+                Login.NoMsg ->
+                    ( { model | page = LoginPage updatedLoginPage }, Cmd.none )
 
-        ( RouteChanged location, SignedIn signedInModel ) ->
-            ( SignedIn { signedInModel | page = pageFor <| Router.parse location }, Cmd.none )
+        ( HomeMsg homeMsg, HomePage ) ->
+            let
+                homeCmd =
+                    Home.update { socketUrl = socketUrl } homeMsg
+            in
+            ( model, Cmd.map HomeMsg homeCmd )
 
-        ( _, _ ) ->
-            ( model, Cmd.none )
-
-
-updateSignedIn : SignedInMsg -> SignedInModel -> ( SignedInModel, Cmd SignedInMsg )
-updateSignedIn msg model =
-    case ( msg, model.page ) of
-        ( StartGameClicked, HomePage ) ->
-            ( model, requestNewGame NewGameResponseReceived )
-
-        ( NewGameResponseReceived result, HomePage ) ->
-            case result of
-                Ok gameName ->
-                    ( model, Navigation.newUrl <| Router.toPath <| Router.GameRoute gameName )
-
-                Err message ->
-                    Util.todo "handle newGame failed"
-
-        ( GameMsg gameMsg, GamePage gameModel ) ->
+        ( GameMsg gameMsg, GamePage gamePage ) ->
             let
                 ( updatedGameModel, gameCmd ) =
-                    GamePage.update gameMsg gameModel
+                    Game.update { socketUrl = socketUrl } gameMsg gamePage
             in
-                ( { model | page = GamePage updatedGameModel }
-                , Cmd.map GameMsg gameCmd
-                )
+            ( { model | page = GamePage updatedGameModel }, Cmd.map GameMsg gameCmd )
 
         _ ->
             ( model, Cmd.none )
 
 
-pageFor : Route -> Page
-pageFor route =
-    case route of
-        HomeRoute ->
-            HomePage
+initPage : Model -> ( Model, Cmd Msg )
+initPage model =
+    let
+        withSession callback =
+            case model.session of
+                Restoring ->
+                    ( { model | page = LoadingPage }, Cmd.none )
 
-        GameRoute uuid ->
-            GamePage (GamePage.init uuid)
+                LoggedOut ->
+                    ( { model | page = LoginPage Login.init }, Cmd.none )
+
+                LoggedIn session ->
+                    callback session
+    in
+    case model.route of
+        HomeRoute ->
+            withSession <|
+                \session ->
+                    ( { model | page = HomePage }, Cmd.none )
+
+        GameRoute gameName ->
+            withSession <|
+                \session ->
+                    ( { model | page = GamePage (Game.init gameName) }, Cmd.none )
 
         NotFoundRoute ->
-            NotFoundPage
-
-
-
----- VIEW ----
+            ( { model | page = NotFoundPage }, Cmd.none )
 
 
 view : Model -> Html Msg
 view model =
-    case model of
-        Restoring _ ->
-            div [] [ text "loading..." ]
+    case model.page of
+        LoadingPage ->
+            text "loading"
 
-        SignedIn signedInModel ->
-            signedInView signedInModel
+        LoginPage loginPage ->
+            Html.map LoginMsg <|
+                Login.view loginPage
 
-        SignedOut signedOutModel ->
-            signedOutView signedOutModel
-
-
-signedOutView : SignedOutModel -> Html Msg
-signedOutView signedOutModel =
-    div []
-        [ input [ onInput UsernameUpdated, value signedOutModel.username, onEnter SubmitUsername ] []
-        ]
-
-
-signedInView : SignedInModel -> Html Msg
-signedInView signedInModel =
-    Html.map SignedInMsg <|
-        case signedInModel.page of
-            HomePage ->
-                button [ onClick StartGameClicked ] [ text "Start game" ]
-
-            GamePage gameModel ->
-                Html.map GameMsg (GamePage.view gameModel)
-
-            NotFoundPage ->
-                div [] [ text "where are you???" ]
-
-
-
----- SUBSCRIPTIONS ----
-
-
-subscriptions : Model -> Sub Msg
-subscriptions model =
-    case model of
-        Restoring _ ->
-            Sub.none
-
-        SignedOut _ ->
-            Sub.none
-
-        SignedIn signedInModel ->
-            Sub.map SignedInMsg <|
-                Sub.batch <|
-                    [ pageSubscriptions signedInModel
-                    , Phoenix.connect socket [ lobbyChannel ]
-                    ]
-
-
-lobbyChannel : Channel SignedInMsg
-lobbyChannel =
-    Channel.init "games:lobby"
-
-
-pageSubscriptions : SignedInModel -> Sub SignedInMsg
-pageSubscriptions signedInModel =
-    case signedInModel.page of
         HomePage ->
-            Sub.none
-
-        GamePage gameModel ->
-            Sub.map GameMsg (GamePage.subscriptions gameModel)
+            Html.map HomeMsg <|
+                Home.view
 
         NotFoundPage ->
-            Sub.none
+            NotFound.view
 
-
-
----- HELPERS ----
-
-
-generateUuidCmd : (Uuid -> msg) -> Cmd msg
-generateUuidCmd tagger =
-    Random.generate tagger Uuid.uuidGenerator
-
-
-onEnter : Msg -> Attribute Msg
-onEnter msg =
-    let
-        isEnter code =
-            if code == 13 then
-                JD.succeed msg
-            else
-                JD.fail "not ENTER"
-    in
-        on "keydown" (JD.andThen isEnter keyCode)
-
-
-requestNewGame : (Result String GameName -> SignedInMsg) -> Cmd SignedInMsg
-requestNewGame tagger =
-    let
-        push =
-            Push.init "games:lobby" "create_game"
-                |> Push.onOk (decodeGameCreated >> tagger)
-    in
-        Phoenix.push socketUrl push
-
-
-decodeGameCreated : JD.Value -> Result String GameName
-decodeGameCreated value =
-    JD.decodeValue gameCreatedDecoder value
-
-
-gameCreatedDecoder : JD.Decoder GameName
-gameCreatedDecoder =
-    JD.field "name" Game.nameDecoder
-
-
-socket : Socket SignedInMsg
-socket =
-    Socket.init socketUrl
-
-
-socketUrl : String
-socketUrl =
-    "ws://localhost:4000/socket/websocket"
-
-
-
----- PROGRAM ----
+        GamePage gamePage ->
+            Html.map GameMsg <|
+                Game.view gamePage
 
 
 main : Program Never Model Msg
@@ -319,13 +178,53 @@ main =
         }
 
 
-persistUsername : String -> Cmd Msg
-persistUsername username =
-    Task.attempt (\_ -> MsgNoOp) (LocalStorage.set "username" username)
+subscriptions : Model -> Sub Msg
+subscriptions model =
+    case model.page of
+        LoadingPage ->
+            Sub.none
+
+        LoginPage loginPage ->
+            Sub.none
+
+        HomePage ->
+            Sub.map HomeMsg <|
+                Home.subscriptions socketUrl
+
+        GamePage gamePage ->
+            Sub.map GameMsg <|
+                Game.subscriptions socketUrl gamePage
+
+        NotFoundPage ->
+            Sub.none
 
 
-restoreUsername : Cmd Msg
-restoreUsername =
+initSession : String -> Model -> ( Model, Cmd Msg )
+initSession username model =
+    let
+        session =
+            { username = username }
+    in
+    ( { model | session = LoggedIn session }, persistSession session )
+
+
+restoreSession : Cmd Msg
+restoreSession =
     LocalStorage.get "username"
         |> Task.mapError (\_ -> "unable to fetch username")
-        |> Task.attempt UsernameLoaded
+        |> Task.attempt SessionRestored
+
+
+persistSession : { a | username : String } -> Cmd Msg
+persistSession { username } =
+    Task.attempt (\_ -> NoOp) (LocalStorage.set "username" username)
+
+
+socketUrl : String
+socketUrl =
+    "ws://localhost:4000/socket/websocket"
+
+
+socket : Socket Msg
+socket =
+    Socket.init socketUrl
