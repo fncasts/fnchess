@@ -1,7 +1,7 @@
-module Piece exposing (..)
+module Piece exposing (blackBishop, blackKing, blackKnight, blackPawn, blackQueen, blackRook, pieceSize, pieceSvg, whiteBishop, whiteKing, whiteKnight, whitePawn, whiteQueen, whiteRook)
 
-import Svg exposing (rect, g, text, Svg, svg, path, text_, circle)
-import Svg.Attributes exposing (style, x, y, width, height, viewBox, d, transform, alignmentBaseline, textAnchor, scale, overflow, cx, cy, r)
+import Svg exposing (Svg, circle, g, path, rect, svg, text, text_)
+import Svg.Attributes exposing (alignmentBaseline, cx, cy, d, height, overflow, r, scale, style, textAnchor, transform, viewBox, width, x, y)
 
 
 pieceSize : Float
@@ -21,7 +21,7 @@ pieceSvg children attrs left top =
             ]
                 ++ attrs
     in
-        svg allAttrs children
+    svg allAttrs children
 
 
 blackKing : List (Svg.Attribute msg) -> Float -> Float -> Svg msg

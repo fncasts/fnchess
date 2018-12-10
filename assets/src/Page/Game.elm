@@ -1,25 +1,25 @@
-module Page.Game exposing (view, update, init, Msg, Model, subscriptions)
+module Page.Game exposing (Model, Msg, init, subscriptions, update, view)
 
-import Html exposing (Html, div, h1, img, button)
-import List.Extra as List
-import Svg exposing (svg, rect, Svg, g, text_, text)
-import Svg.Attributes exposing (width, height, rx, ry, viewBox, x, y, fill, fontSize, style, transform, class)
-import Svg.Events exposing (onMouseDown, onMouseUp, onMouseMove)
 import Arithmetic exposing (isEven)
-import Piece
-import Mouse
+import Html exposing (Html, button, div, h1, img)
 import Json.Decode as JD
-import Json.Encode as JE
 import Json.Decode.Pipeline as JDP
-import Uuid exposing (Uuid)
-import Model.Game as Game exposing (Board, Player(..), Piece(..), Square(..))
+import Json.Encode as JE
+import List.Extra as List
+import Model.Game as Game exposing (Board, Game, Piece(..), Player(..), Square(..))
 import Model.Location as Location exposing (Location)
+import Mouse
 import Phoenix
-import Phoenix.Socket as Socket exposing (Socket)
 import Phoenix.Channel as Channel exposing (Channel)
 import Phoenix.Push as Push exposing (Push)
-import Model.Game as Game exposing (Game)
+import Phoenix.Socket as Socket exposing (Socket)
+import Piece
+import Svg exposing (Svg, g, rect, svg, text, text_)
+import Svg.Attributes exposing (class, fill, fontSize, height, rx, ry, style, transform, viewBox, width, x, y)
+import Svg.Events exposing (onMouseDown, onMouseMove, onMouseUp)
 import Util
+import Uuid exposing (Uuid)
+
 
 
 ---- MODEL ----
@@ -68,8 +68,13 @@ type Msg
     | GameUpdated (Result String Game)
 
 
-update : Msg -> Model -> ( Model, Cmd Msg )
-update msg model =
+type alias UpdateConfig =
+    { socketUrl : String
+    }
+
+
+update : UpdateConfig -> Msg -> Model -> ( Model, Cmd Msg )
+update { socketUrl } msg model =
     case msg of
         NoOp ->
             ( model, Cmd.none )
@@ -79,12 +84,12 @@ update msg model =
                 updatedBoard =
                     Game.removePieceAt location model.board
             in
-                ( { model
-                    | board = updatedBoard
-                    , drag = Just (Drag location player piece)
-                  }
-                , Cmd.none
-                )
+            ( { model
+                | board = updatedBoard
+                , drag = Just (Drag location player piece)
+              }
+            , Cmd.none
+            )
 
         DragReleasedOutsideBoard ->
             case model.drag of
@@ -93,7 +98,7 @@ update msg model =
                         updatedBoard =
                             Game.placePieceAt player piece origin model.board
                     in
-                        ( { model | drag = Nothing, board = updatedBoard }, Cmd.none )
+                    ( { model | drag = Nothing, board = updatedBoard }, Cmd.none )
 
                 Nothing ->
                     ( model, Cmd.none )
@@ -123,7 +128,7 @@ update msg model =
                         updatedBoard =
                             List.foldl Game.applyEvent Game.newGame game.events
                     in
-                        ( { model | board = updatedBoard }, Cmd.none )
+                    ( { model | board = updatedBoard }, Cmd.none )
 
                 Err message ->
                     Util.todo ("handle gameUpdateFailed: " ++ message)
@@ -185,20 +190,20 @@ dragView { drag, mousePosition, mouseMovementX } =
                 rotation =
                     clamp -15 15 mouseMovementX
             in
-                svg
-                    [ x <| toString <| mousePosition.x - offset
-                    , y <| toString <| mousePosition.y - offset
-                    , height (toString squareSize)
-                    , width (toString squareSize)
-                    , style "pointer-events: none;"
+            svg
+                [ x <| toString <| mousePosition.x - offset
+                , y <| toString <| mousePosition.y - offset
+                , height (toString squareSize)
+                , width (toString squareSize)
+                , style "pointer-events: none;"
+                ]
+                [ pieceView piece
+                    player
+                    [ transform <| "rotate(" ++ toString rotation ++ " 0 0)"
                     ]
-                    [ pieceView piece
-                        player
-                        [ transform <| "rotate(" ++ (toString rotation) ++ " 0 0)"
-                        ]
-                        (toFloat <| squareSize // 2)
-                        (toFloat <| squareSize // 2)
-                    ]
+                    (toFloat <| squareSize // 2)
+                    (toFloat <| squareSize // 2)
+                ]
 
 
 boardViewBox =
@@ -211,8 +216,8 @@ squareView : Location -> Square -> List (Svg Msg) -> List (Svg Msg)
 squareView location square elements =
     elements
         ++ [ svg
-                [ x (toString <| (Location.rankIndex location) * squareSize)
-                , y (toString <| (7 - (Location.fileIndex location)) * squareSize)
+                [ x (toString <| Location.rankIndex location * squareSize)
+                , y (toString <| (7 - Location.fileIndex location) * squareSize)
                 , width <| toString <| squareSize
                 , height <| toString <| squareSize
                 , onMouseUp (DragEnd location)
@@ -300,8 +305,9 @@ squareFillView location square =
 
 squareColor : Location -> String
 squareColor location =
-    if isEven ((Location.rankIndex location) + (Location.fileIndex location)) then
+    if isEven (Location.rankIndex location + Location.fileIndex location) then
         "#f2efc7"
+
     else
         "#d2bba0"
 
@@ -315,17 +321,19 @@ coordinateAnnotationView location =
         rankIndex =
             Location.rankIndex location
     in
-        g [] <|
-            List.filterMap identity <|
-                [ if fileIndex == 0 then
-                    Just <| letterView rankIndex
-                  else
-                    Nothing
-                , if rankIndex == 0 then
-                    Just <| numberView fileIndex
-                  else
-                    Nothing
-                ]
+    g [] <|
+        List.filterMap identity <|
+            [ if fileIndex == 0 then
+                Just <| letterView rankIndex
+
+              else
+                Nothing
+            , if rankIndex == 0 then
+                Just <| numberView fileIndex
+
+              else
+                Nothing
+            ]
 
 
 letterView : Int -> Svg Msg
@@ -376,11 +384,13 @@ indexToRank index =
 ---- SUBSCRIPTIONS ----
 
 
-subscriptions : Model -> Sub Msg
-subscriptions model =
+subscriptions : String -> Model -> Sub Msg
+subscriptions socketUrl model =
     Sub.batch
         [ Mouse.ups (\_ -> DragReleasedOutsideBoard)
-        , Phoenix.connect socket [ gameChannel model ]
+        , Phoenix.connect
+            (Socket.init socketUrl)
+            [ gameChannel model ]
         ]
 
 
@@ -392,13 +402,4 @@ gameChannel model =
 
 gameChannelName : { a | gameName : Game.GameName } -> String
 gameChannelName { gameName } =
-    ("game:" ++ (Game.gameNameToString gameName))
-
-
-socket : Socket Msg
-socket =
-    Socket.init socketUrl
-
-
-socketUrl =
-    "ws://localhost:4000/socket/websocket"
+    "game:" ++ Game.gameNameToString gameName

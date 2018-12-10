@@ -1,35 +1,32 @@
-module Model.Game
-    exposing
-        ( Player(..)
-        , Piece(..)
-        , Square(..)
-        , Board
-        , Game
-        , Event(..)
-        , Board(..)
-        , placePieceAt
-        , removePieceAt
-        , newGame
-        , emptyGame
-        , foldl
-        , GameName
-        , nameDecoder
-        , gameNameToString
-        , gameNameFromString
-        , decoder
-        , applyEvent
-        , encodeEvent
-        , fromAscii
-        , toAscii
-        , move
-        )
+module Model.Game exposing
+    ( Board(..)
+    , Event(..)
+    , Game
+    , GameName
+    , Piece(..)
+    , Player(..)
+    , Square(..)
+    , applyEvent
+    , decoder
+    , emptyGame
+    , encodeEvent
+    , foldl
+    , fromAscii
+    , gameNameFromString
+    , gameNameToString
+    , move
+    , nameDecoder
+    , newGame
+    , placePieceAt
+    , removePieceAt
+    , toAscii
+    )
 
-import List.Extra as List
 import Json.Decode as JD
 import Json.Encode as JE
-import Regex
-import Util exposing (submatches, unindent)
+import List.Extra as List
 import Model.Location as Location exposing (Location)
+import Util exposing (submatches, unindent)
 
 
 type Player
@@ -152,10 +149,10 @@ squareAt location (Board ranks) =
         ( rankIndex, fileIndex ) =
             Location.rankAndFileIndexes location
     in
-        ranks
-            |> List.getAt rankIndex
-            |> Maybe.andThen (List.getAt fileIndex)
-            |> Maybe.withDefault Empty
+    ranks
+        |> List.getAt rankIndex
+        |> Maybe.andThen (List.getAt fileIndex)
+        |> Maybe.withDefault Empty
 
 
 updateSquare : Location -> (Square -> Square) -> Board -> Board
@@ -241,6 +238,7 @@ toAscii (Board ranks) =
         |> String.join "\n"
 
 
+newline : String
 newline =
     String.fromList [ '\n' ]
 
