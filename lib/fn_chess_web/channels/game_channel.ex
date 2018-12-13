@@ -4,7 +4,13 @@ defmodule FnChessWeb.GameChannel do
   alias FnChess.GameServer
 
   def join("game:" <> name, payload, socket) do
-    {:ok, socket |> assign(:game_name, name)}
+    case GameServer.fetch(name) do
+      {:ok, game} ->
+        {:ok, game, socket |> assign(:game_name, name)}
+
+      {:error, :not_found} ->
+        {:error, %{reason: "game not found"}}
+    end
   end
 
   def handle_in("event", event, socket) do

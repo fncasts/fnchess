@@ -13,6 +13,17 @@ defmodule FnChess.GameServer do
     GenServer.call(via_tuple(name), {:update, event})
   end
 
+  @spec fetch(String.t()) :: {:ok, Game.t()} | {:error, any()}
+  def fetch(name) do
+    case Registry.lookup(FnChess.GameRegistry, name) do
+      [] ->
+        {:error, :not_found}
+
+      _ ->
+        GenServer.call(via_tuple(name), :fetch)
+    end
+  end
+
   #### SERVER CALLBACKS ####
 
   @spec init(any()) :: {:ok, Game.t()}
@@ -26,6 +37,11 @@ defmodule FnChess.GameServer do
   def handle_call({:update, event}, _from, game) do
     {:ok, updated_game} = Game.update(game, event)
     {:reply, {:ok, updated_game}, updated_game}
+  end
+
+  @spec handle_call(:fetch, GenServer.from(), Game.t()) :: {:reply, {:ok, Game.t()}, Game.t()}
+  def handle_call(:fetch, _from, game) do
+    {:reply, {:ok, game}, game}
   end
 
   #### HELPERS ####
