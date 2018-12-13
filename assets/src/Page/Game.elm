@@ -4,7 +4,6 @@ import Arithmetic exposing (isEven)
 import Html exposing (Html, button, div, h1, img)
 import Json.Decode as JD
 import Json.Decode.Pipeline as JDP
-import Json.Encode as JE
 import List.Extra as List
 import Model.Game as Game exposing (Board, Game, Piece(..), Player(..), Square(..))
 import Model.Location as Location exposing (Location)
@@ -17,15 +16,19 @@ import Piece
 import Svg exposing (Svg, g, rect, svg, text, text_)
 import Svg.Attributes exposing (class, fill, fontSize, height, rx, ry, style, transform, viewBox, width, x, y)
 import Svg.Events exposing (onMouseDown, onMouseMove, onMouseUp)
-import Util
-import Uuid exposing (Uuid)
 
 
 
 ---- MODEL ----
 
 
-type alias Model =
+type Model
+    = Loading Game.GameName
+    | Loaded LoadedModel
+    | Error
+
+
+type alias LoadedModel =
     { gameName : Game.GameName
     , board : Board
     , drag : Maybe Drag
@@ -46,13 +49,19 @@ type alias MouseMove =
 
 
 init : Game.GameName -> Model
-init name =
-    { gameName = name
-    , board = Game.newGame
-    , drag = Nothing
-    , mousePosition = { x = 0, y = 0 }
-    , mouseMovementX = 0
-    }
+init gameName =
+    Loading gameName
+
+
+initLoaded : Game.GameName -> Game -> Model
+initLoaded gameName game =
+    Loaded
+        { gameName = gameName
+        , board = gameToBoard game
+        , drag = Nothing
+        , mousePosition = { x = 0, y = 0 }
+        , mouseMovementX = 0
+        }
 
 
 
@@ -66,6 +75,8 @@ type Msg
     | MouseMoved MouseMove
     | DragReleasedOutsideBoard
     | GameUpdated (Result String Game)
+    | JoinSucceeded (Result String Game)
+    | JoinFailed
 
 
 type alias UpdateConfig =
@@ -75,68 +86,82 @@ type alias UpdateConfig =
 
 update : UpdateConfig -> Msg -> Model -> ( Model, Cmd Msg )
 update { socketUrl } msg model =
-    case msg of
-        NoOp ->
-            ( model, Cmd.none )
+    case ( msg, model ) of
+        ( JoinSucceeded gameResult, Loading gameName ) ->
+            case gameResult of
+                Ok game ->
+                    ( initLoaded gameName game, Cmd.none )
 
-        DragStart player piece location ->
+                Err message ->
+                    ( Error, Cmd.none )
+
+        ( JoinFailed, _ ) ->
+            ( Error, Cmd.none )
+
+        ( DragStart player piece location, Loaded model ) ->
             let
                 updatedBoard =
                     Game.removePieceAt location model.board
             in
-            ( { model
-                | board = updatedBoard
-                , drag = Just (Drag location player piece)
-              }
+            ( Loaded
+                { model
+                    | board = updatedBoard
+                    , drag = Just (Drag location player piece)
+                }
             , Cmd.none
             )
 
-        DragReleasedOutsideBoard ->
+        ( DragReleasedOutsideBoard, Loaded model ) ->
             case model.drag of
                 Just (Drag origin player piece) ->
                     let
                         updatedBoard =
                             Game.placePieceAt player piece origin model.board
                     in
-                    ( { model | drag = Nothing, board = updatedBoard }, Cmd.none )
+                    ( Loaded { model | drag = Nothing, board = updatedBoard }, Cmd.none )
 
                 Nothing ->
-                    ( model, Cmd.none )
+                    ( Loaded model, Cmd.none )
 
-        DragEnd destination ->
+        ( DragEnd destination, Loaded model ) ->
             case model.drag of
                 Nothing ->
-                    ( model, Cmd.none )
+                    ( Loaded model, Cmd.none )
 
                 Just (Drag origin player piece) ->
-                    ( { model
-                        | board = Game.placePieceAt player piece destination model.board
-                        , drag = Nothing
-                      }
+                    ( Loaded
+                        { model
+                            | board = Game.placePieceAt player piece destination model.board
+                            , drag = Nothing
+                        }
                     , Phoenix.push socketUrl (pushEvent (Game.Move origin destination) model)
                     )
 
-        MouseMoved { offsetX, offsetY, movementX } ->
-            ( { model | mousePosition = { x = offsetX, y = offsetY }, mouseMovementX = movementX }
+        ( MouseMoved { offsetX, offsetY, movementX }, Loaded model ) ->
+            ( Loaded { model | mousePosition = { x = offsetX, y = offsetY }, mouseMovementX = movementX }
             , Cmd.none
             )
 
-        GameUpdated gameResult ->
+        ( GameUpdated gameResult, Loaded model ) ->
             case gameResult of
                 Ok game ->
-                    let
-                        updatedBoard =
-                            List.foldl Game.applyEvent Game.newGame game.events
-                    in
-                    ( { model | board = updatedBoard }, Cmd.none )
+                    ( Loaded { model | board = gameToBoard game }, Cmd.none )
 
                 Err message ->
-                    Util.todo ("handle gameUpdateFailed: " ++ message)
+                    ( Error, Cmd.none )
+
+        _ ->
+            ( model, Cmd.none )
 
 
-pushEvent : Game.Event -> Model -> Push Msg
-pushEvent event model =
-    Push.init (gameChannelName model) "event"
+gameToBoard : Game -> Board
+gameToBoard game =
+    List.foldl Game.applyEvent Game.newGame game.events
+
+
+pushEvent : Game.Event -> LoadedModel -> Push Msg
+pushEvent event loadedModel =
+    Push.init (gameChannelName loadedModel.gameName) "event"
         |> Push.withPayload (Game.encodeEvent event)
 
 
@@ -146,14 +171,22 @@ pushEvent event model =
 
 view : Model -> Html Msg
 view model =
-    svg
-        [ width (toString boardSize)
-        , height (toString boardSize)
-        , viewBox boardViewBox
-        ]
-        [ boardView model.board
-        , dragView model
-        ]
+    case model of
+        Loading gameName ->
+            text "loading"
+
+        Loaded model ->
+            svg
+                [ width (toString boardSize)
+                , height (toString boardSize)
+                , viewBox boardViewBox
+                ]
+                [ boardView model.board
+                , dragView model
+                ]
+
+        Error ->
+            text "error"
 
 
 boardView : Board -> Svg Msg
@@ -176,7 +209,7 @@ mouseMoveDecoder =
         |> JDP.required "movementX" JD.int
 
 
-dragView : Model -> Svg Msg
+dragView : LoadedModel -> Svg Msg
 dragView { drag, mousePosition, mouseMovementX } =
     case drag of
         Nothing ->
@@ -388,18 +421,30 @@ subscriptions : String -> Model -> Sub Msg
 subscriptions socketUrl model =
     Sub.batch
         [ Mouse.ups (\_ -> DragReleasedOutsideBoard)
-        , Phoenix.connect
-            (Socket.init socketUrl)
-            [ gameChannel model ]
+        , case model of
+            Loading gameName ->
+                Phoenix.connect
+                    (Socket.init socketUrl)
+                    [ gameChannel gameName ]
+
+            Loaded { gameName } ->
+                Phoenix.connect
+                    (Socket.init socketUrl)
+                    [ gameChannel gameName ]
+
+            Error ->
+                Sub.none
         ]
 
 
-gameChannel : Model -> Channel Msg
-gameChannel model =
-    Channel.init (gameChannelName model)
+gameChannel : Game.GameName -> Channel Msg
+gameChannel gameName =
+    Channel.init (gameChannelName gameName)
+        |> Channel.onJoin (JD.decodeValue Game.decoder >> JoinSucceeded)
+        |> Channel.onJoinError (\_ -> JoinFailed)
         |> Channel.on "game_updated" (JD.decodeValue Game.decoder >> GameUpdated)
 
 
-gameChannelName : { a | gameName : Game.GameName } -> String
-gameChannelName { gameName } =
+gameChannelName : Game.GameName -> String
+gameChannelName gameName =
     "game:" ++ Game.gameNameToString gameName
